@@ -1,0 +1,141 @@
+USE qc_core
+DECLARE 
+ @errMsg VARCHAR(3000),
+ @UpUser nvarchar(50) = 'bind\qcdev',
+ @UpDate datetime = getdate()
+
+BEGIN TRANSACTION TRANS
+BEGIN TRY
+
+-- Step 1: Identify mismatched claims BEFORE any updates 
+-- added resut code BDDELETE(1838) and BDOVRNT(1634) to exclude on 090825
+
+;WITH RankedClaims AS (
+    SELECT
+        c.claim_id,
+        c.claim_ud,
+        c.repriced_network,
+		c.modified_user_name,
+        ark_pn.provider_network_nm AS ark_network,
+        arko_pn.provider_network_nm AS arko_network,
+        bnm.provider_network_nm AS expected_network,
+        1 AS to_process,
+		@UpUser AS created_user_name,
+        @UpDate AS created_date,
+        @UpDate AS modified_date,
+       
+        ROW_NUMBER() OVER (PARTITION BY c.claim_id ORDER BY c.modified_date DESC) AS rn
+    FROM claim c
+    LEFT JOIN claim_procedure cp WITH (NOLOCK) ON c.claim_id = cp.claim_id
+    LEFT JOIN adjudication_result_key ark WITH (NOLOCK) ON cp.claim_procedure_id = ark.claim_procedure_id
+    LEFT JOIN adjudication_result_key_override arko WITH (NOLOCK) ON ark.adjudication_result_key_id = arko.adjudication_result_key_id
+    LEFT JOIN provider_network ark_pn WITH (NOLOCK) ON ark.provider_network_id = ark_pn.provider_network_id
+    LEFT JOIN provider_network arko_pn WITH (NOLOCK) ON arko.provider_network_id = arko_pn.provider_network_id
+    LEFT JOIN adjudication_result_code arc WITH (NOLOCK) ON c.claim_id = arc.claim_id
+    LEFT JOIN result_code rc WITH (NOLOCK) ON arc.result_code_id = rc.result_code_id
+    LEFT JOIN dbo.bind_network_map bnm WITH (NOLOCK) ON c.repriced_network = bnm.repriced_network
+    WHERE 
+        c.modified_date >= DATEADD(DAY, -1, GETDATE())
+        AND cp.is_negated != '1'
+        AND c.adjudication_status_id NOT IN ('4', '15')
+        AND rc.result_code_id NOT IN ('1470', '1838', '1634')
+        AND (
+            ISNULL(ark_pn.provider_network_nm, '') != ISNULL(bnm.provider_network_nm, '')
+            OR (
+                arko_pn.provider_network_nm IS NOT NULL
+                AND ISNULL(arko_pn.provider_network_nm, '') != ISNULL(bnm.provider_network_nm, '')
+            )
+        )
+        AND (
+            arko.provider_network_id IS NULL
+            OR arko.provider_network_id != bnm.provider_network_id
+        )
+)
+
+-- Step 2: Insert one row per claim_id into bind_mismatched_network_processing
+INSERT INTO [bind_mismatched_network_processing] (
+    claim_id, claim_ud, repriced_network, ark_network, arko_network, expected_network,
+    to_process, created_user_name, created_date, modified_date, modified_user_name
+)
+SELECT
+    claim_id, claim_ud, repriced_network, ark_network, arko_network, expected_network,
+    to_process, created_user_name, created_date, modified_date, modified_user_name
+FROM RankedClaims
+WHERE rn = 1;
+
+-- Step 3: Insert missing arko rows
+INSERT INTO adjudication_result_key_override (
+    adjudication_result_key_id,
+    provider_network_id,
+    network_level_id,
+    provider_network_adjudication_details_override_reason_id,
+    network_level_adjudication_details_override_reason_id,
+    created_user_name,
+    modified_user_name,
+    modified_date,
+    active
+)
+SELECT
+    ark.adjudication_result_key_id,
+    bnm.provider_network_id,
+    CASE
+        WHEN bnm.provider_network_id IN (9, 10, 12) THEN 2
+        WHEN bnm.provider_network_id IN (8, 11) THEN 1
+        ELSE NULL
+    END,
+    3,
+    3,
+    @UpUser,
+    @UpUser,
+    @UpDate,
+    1
+FROM adjudication_result_key ark
+INNER JOIN claim_procedure cp ON ark.claim_procedure_id = cp.claim_procedure_id
+INNER JOIN claim c ON cp.claim_id = c.claim_id
+INNER JOIN dbo.bind_network_map bnm ON c.repriced_network = bnm.repriced_network
+LEFT JOIN adjudication_result_key_override arko ON ark.adjudication_result_key_id = arko.adjudication_result_key_id
+LEFT JOIN provider_network ark_pn ON ark.provider_network_id = ark_pn.provider_network_id
+WHERE 
+    arko.adjudication_result_key_id IS NULL
+    AND c.modified_date >= DATEADD(DAY, -1, GETDATE())
+    AND cp.is_negated != '1'
+    AND c.adjudication_status_id NOT IN ('4', '15')
+    AND ISNULL(ark_pn.provider_network_nm, '') != ISNULL(bnm.provider_network_nm, '');
+
+-- Step 4: Update arko rows
+UPDATE arko
+SET 
+    arko.provider_network_id = bnm.provider_network_id,
+    arko.provider_network_adjudication_details_override_reason_id = 3,
+    arko.network_level_id = CASE
+        WHEN bnm.provider_network_id IN (9, 10, 12) THEN 2
+        WHEN bnm.provider_network_id IN (8, 11) THEN 1
+        ELSE arko.network_level_id
+    END,
+    arko.network_level_adjudication_details_override_reason_id = 3
+FROM adjudication_result_key_override arko
+INNER JOIN adjudication_result_key ark ON arko.adjudication_result_key_id = ark.adjudication_result_key_id
+INNER JOIN claim_procedure cp ON ark.claim_procedure_id = cp.claim_procedure_id
+INNER JOIN claim c ON cp.claim_id = c.claim_id
+INNER JOIN dbo.bind_network_map bnm ON c.repriced_network = bnm.repriced_network
+LEFT JOIN provider_network ark_pn ON ark.provider_network_id = ark_pn.provider_network_id
+LEFT JOIN provider_network arko_pn ON arko.provider_network_id = arko_pn.provider_network_id
+WHERE 
+    c.modified_date >= DATEADD(DAY, -1, GETDATE())
+    AND cp.is_negated != '1'
+    AND c.adjudication_status_id NOT IN ('4', '15')
+    AND (
+        (arko_pn.provider_network_nm IS NOT NULL AND ISNULL(arko_pn.provider_network_nm, '') != ISNULL(bnm.provider_network_nm, ''))
+        OR (arko_pn.provider_network_nm IS NULL AND ISNULL(ark_pn.provider_network_nm, '') != ISNULL(bnm.provider_network_nm, ''))
+    );
+
+END TRY
+BEGIN CATCH
+    SELECT @errMsg = ERROR_MESSAGE() 
+    RAISERROR(@errMsg, 16, 1)
+    ROLLBACK TRANSACTION TRANS
+    RETURN
+END CATCH
+COMMIT TRANSACTION TRANS
+
+
