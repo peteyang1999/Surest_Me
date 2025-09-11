@@ -1,141 +1,266 @@
 USE qc_core
+GO
+
 DECLARE 
- @errMsg VARCHAR(3000),
- @UpUser nvarchar(50) = 'bind\qcdev',
- @UpDate datetime = getdate()
+    @errMsg VARCHAR(3000),
+    @errSeverity INT,
+    @errState INT,
+    @errLine INT,
+    @errProcedure VARCHAR(128),
+    @UpUser NVARCHAR(50) = 'bind\qcprod', -- You're right, this should be dynamic, but for now keeping it as is
+    @UpDate DATETIME = GETDATE(),
+    @StepName VARCHAR(100) = 'Identify Mismatched Claims'
 
 BEGIN TRANSACTION TRANS
 BEGIN TRY
 
--- Step 1: Identify mismatched claims BEFORE any updates 
--- added resut code BDDELETE(1838) and BDOVRNT(1634) to exclude on 090825
+    SET @StepName = 'Identify Mismatched Claims'
 
-;WITH RankedClaims AS (
-    SELECT
-        c.claim_id,
-        c.claim_ud,
-        c.repriced_network,
-		c.modified_user_name,
-        ark_pn.provider_network_nm AS ark_network,
-        arko_pn.provider_network_nm AS arko_network,
-        bnm.provider_network_nm AS expected_network,
-        1 AS to_process,
-		@UpUser AS created_user_name,
-        @UpDate AS created_date,
-        @UpDate AS modified_date,
-       
-        ROW_NUMBER() OVER (PARTITION BY c.claim_id ORDER BY c.modified_date DESC) AS rn
-    FROM claim c
-    LEFT JOIN claim_procedure cp WITH (NOLOCK) ON c.claim_id = cp.claim_id
-    LEFT JOIN adjudication_result_key ark WITH (NOLOCK) ON cp.claim_procedure_id = ark.claim_procedure_id
-    LEFT JOIN adjudication_result_key_override arko WITH (NOLOCK) ON ark.adjudication_result_key_id = arko.adjudication_result_key_id
-    LEFT JOIN provider_network ark_pn WITH (NOLOCK) ON ark.provider_network_id = ark_pn.provider_network_id
-    LEFT JOIN provider_network arko_pn WITH (NOLOCK) ON arko.provider_network_id = arko_pn.provider_network_id
-    LEFT JOIN adjudication_result_code arc WITH (NOLOCK) ON c.claim_id = arc.claim_id
-    LEFT JOIN result_code rc WITH (NOLOCK) ON arc.result_code_id = rc.result_code_id
-    LEFT JOIN dbo.bind_network_map bnm WITH (NOLOCK) ON c.repriced_network = bnm.repriced_network
-    WHERE 
-        c.modified_date >= DATEADD(DAY, -1, GETDATE())
-        AND cp.is_negated != '1'
-        AND c.adjudication_status_id NOT IN ('4', '15')
-        AND rc.result_code_id NOT IN ('1470', '1838', '1634')
-        AND (
-            ISNULL(ark_pn.provider_network_nm, '') != ISNULL(bnm.provider_network_nm, '')
-            OR (
-                arko_pn.provider_network_nm IS NOT NULL
-                AND ISNULL(arko_pn.provider_network_nm, '') != ISNULL(bnm.provider_network_nm, '')
-            )
+    BEGIN TRY
+
+        -- Step 1: Identify mismatched claims BEFORE any updates 
+        -- added result code BDDELETE(1838) and BDOVRNT(1634) to exclude on 090825
+
+        ;WITH cte_RankedClaims AS ( -- Good naming convention with cte_ prefix
+            SELECT
+                c.claim_id,
+                c.claim_ud,
+                c.repriced_network,
+                c.modified_user_name,
+                ark_pn.provider_network_nm AS ark_network,
+                arko_pn.provider_network_nm AS arko_network,
+                bnm.provider_network_nm AS expected_network,
+                1 AS to_process,
+                @UpUser AS created_user_name,
+                @UpDate AS created_date,
+                @UpDate AS modified_date,
+               
+                ROW_NUMBER() OVER (PARTITION BY c.claim_id ORDER BY c.modified_date DESC) AS rn
+            FROM claim c
+            LEFT JOIN claim_procedure cp WITH (NOLOCK) ON c.claim_id = cp.claim_id
+            LEFT JOIN adjudication_result_key ark WITH (NOLOCK) ON cp.claim_procedure_id = ark.claim_procedure_id
+            LEFT JOIN adjudication_result_key_override arko WITH (NOLOCK) ON ark.adjudication_result_key_id = arko.adjudication_result_key_id
+            LEFT JOIN provider_network ark_pn WITH (NOLOCK) ON ark.provider_network_id = ark_pn.provider_network_id
+            LEFT JOIN provider_network arko_pn WITH (NOLOCK) ON arko.provider_network_id = arko_pn.provider_network_id
+            LEFT JOIN adjudication_result_code arc WITH (NOLOCK) ON c.claim_id = arc.claim_id
+            LEFT JOIN result_code rc WITH (NOLOCK) ON arc.result_code_id = rc.result_code_id
+            LEFT JOIN dbo.bind_network_map bnm WITH (NOLOCK) ON c.repriced_network = bnm.repriced_network
+            WHERE 
+                c.modified_date >= DATEADD(DAY, -1, GETDATE())
+                AND cp.is_negated != '1'
+                AND c.adjudication_status_id NOT IN ('4', '15')
+                AND rc.result_code_id NOT IN ('1470', '1838', '1634')
+                AND (
+                    ISNULL(ark_pn.provider_network_nm, '') != ISNULL(bnm.provider_network_nm, '')
+                    OR (
+                        arko_pn.provider_network_nm IS NOT NULL
+                        AND ISNULL(arko_pn.provider_network_nm, '') != ISNULL(bnm.provider_network_nm, '')
+                    )
+                )
+                AND (
+                    arko.provider_network_id IS NULL
+                    OR arko.provider_network_id != bnm.provider_network_id
+                )
+        ) -- Select Top 100 * From cte_RankedClaims -- this is just for testing the cte
+
+        -- Step 2: Insert one row per claim_id into bind_mismatched_network_processing
+        INSERT INTO [bind_mismatched_network_processing] (
+            claim_id, claim_ud, repriced_network, ark_network, arko_network, expected_network,
+            to_process, created_user_name, created_date, modified_date, modified_user_name
         )
-        AND (
-            arko.provider_network_id IS NULL
-            OR arko.provider_network_id != bnm.provider_network_id
+        SELECT
+            claim_id, claim_ud, repriced_network, ark_network, arko_network, expected_network,
+            to_process, created_user_name, created_date, modified_date, modified_user_name
+        FROM cte_RankedClaims
+        WHERE rn = 1;
+        
+        -- Success message
+        PRINT 'Successfully inserted ' + CAST(@@ROWCOUNT AS VARCHAR(10)) + ' tracking records';
+        
+    END TRY
+	
+	
+    BEGIN CATCH
+        -- Capture error details for this specific step
+        SELECT 
+            @errMsg = 'ERROR in ' + @StepName + ' (CTE and Tracking Insert): ' + ERROR_MESSAGE(),
+            @errSeverity = ERROR_SEVERITY(),
+            @errState = ERROR_STATE(),
+            @errLine = ERROR_LINE(),
+            @errProcedure = ISNULL(ERROR_PROCEDURE(), 'CTE_Insert_Step');
+
+        -- Print error details
+        PRINT '=========================================';
+        PRINT 'STEP FAILED - CTE AND TRACKING INSERT';
+        PRINT '=========================================';
+        PRINT 'Error Message: ' + @errMsg;
+        PRINT 'Error Severity: ' + CAST(@errSeverity AS VARCHAR(10));
+        PRINT 'Error Line: ' + CAST(@errLine AS VARCHAR(10));
+        PRINT '=========================================';
+
+        -- Re-raise the error to be caught by the outer CATCH block
+        RAISERROR(@errMsg, @errSeverity, @errState);
+    END CATCH
+
+    -- If we get here, the CTE and INSERT were successful
+    PRINT 'CTE and tracking insert completed successfully';
+
+    SET @StepName = 'Insert Missing ARO Rows'
+
+    BEGIN TRY
+        -- Step 3: Insert missing arko rows
+        INSERT INTO adjudication_result_key_override (
+            adjudication_result_key_id,
+            provider_network_id,
+            network_level_id,
+            provider_network_adjudication_details_override_reason_id,
+            network_level_adjudication_details_override_reason_id,
+            created_user_name,
+            modified_user_name,
+            modified_date,
+            active
         )
-)
+        SELECT
+            ark.adjudication_result_key_id,
+            bnm.provider_network_id,
+            CASE
+                WHEN bnm.provider_network_id IN (9, 10, 12) THEN 2
+                WHEN bnm.provider_network_id IN (8, 11) THEN 1
+                ELSE NULL
+            END,
+            3,
+            3,
+            @UpUser,
+            @UpUser,
+            @UpDate,
+            1
+        FROM adjudication_result_key ark
+        INNER JOIN claim_procedure cp ON ark.claim_procedure_id = cp.claim_procedure_id
+        INNER JOIN claim c ON cp.claim_id = c.claim_id
+        INNER JOIN dbo.bind_network_map bnm ON c.repriced_network = bnm.repriced_network
+        LEFT JOIN adjudication_result_key_override arko ON ark.adjudication_result_key_id = arko.adjudication_result_key_id
+        LEFT JOIN provider_network ark_pn ON ark.provider_network_id = ark_pn.provider_network_id
+        WHERE 
+            arko.adjudication_result_key_id IS NULL
+            AND c.modified_date >= DATEADD(DAY, -1, GETDATE())
+            AND cp.is_negated != '1'
+            AND c.adjudication_status_id NOT IN ('4', '15')
+            AND ISNULL(ark_pn.provider_network_nm, '') != ISNULL(bnm.provider_network_nm, '');
 
--- Step 2: Insert one row per claim_id into bind_mismatched_network_processing
-INSERT INTO [bind_mismatched_network_processing] (
-    claim_id, claim_ud, repriced_network, ark_network, arko_network, expected_network,
-    to_process, created_user_name, created_date, modified_date, modified_user_name
-)
-SELECT
-    claim_id, claim_ud, repriced_network, ark_network, arko_network, expected_network,
-    to_process, created_user_name, created_date, modified_date, modified_user_name
-FROM RankedClaims
-WHERE rn = 1;
+        -- Success message
+        PRINT 'Successfully inserted ' + CAST(@@ROWCOUNT AS VARCHAR(10)) + ' new ARO records';
 
--- Step 3: Insert missing arko rows
-INSERT INTO adjudication_result_key_override (
-    adjudication_result_key_id,
-    provider_network_id,
-    network_level_id,
-    provider_network_adjudication_details_override_reason_id,
-    network_level_adjudication_details_override_reason_id,
-    created_user_name,
-    modified_user_name,
-    modified_date,
-    active
-)
-SELECT
-    ark.adjudication_result_key_id,
-    bnm.provider_network_id,
-    CASE
-        WHEN bnm.provider_network_id IN (9, 10, 12) THEN 2
-        WHEN bnm.provider_network_id IN (8, 11) THEN 1
-        ELSE NULL
-    END,
-    3,
-    3,
-    @UpUser,
-    @UpUser,
-    @UpDate,
-    1
-FROM adjudication_result_key ark
-INNER JOIN claim_procedure cp ON ark.claim_procedure_id = cp.claim_procedure_id
-INNER JOIN claim c ON cp.claim_id = c.claim_id
-INNER JOIN dbo.bind_network_map bnm ON c.repriced_network = bnm.repriced_network
-LEFT JOIN adjudication_result_key_override arko ON ark.adjudication_result_key_id = arko.adjudication_result_key_id
-LEFT JOIN provider_network ark_pn ON ark.provider_network_id = ark_pn.provider_network_id
-WHERE 
-    arko.adjudication_result_key_id IS NULL
-    AND c.modified_date >= DATEADD(DAY, -1, GETDATE())
-    AND cp.is_negated != '1'
-    AND c.adjudication_status_id NOT IN ('4', '15')
-    AND ISNULL(ark_pn.provider_network_nm, '') != ISNULL(bnm.provider_network_nm, '');
+    END TRY
+    BEGIN CATCH
+        -- Capture error details for this specific step
+        SELECT 
+            @errMsg = 'ERROR in ' + @StepName + ' (Insert Missing ARO): ' + ERROR_MESSAGE(),
+            @errSeverity = ERROR_SEVERITY(),
+            @errState = ERROR_STATE(),
+            @errLine = ERROR_LINE(),
+            @errProcedure = ISNULL(ERROR_PROCEDURE(), 'Insert_ARO_Step');
 
--- Step 4: Update arko rows
-UPDATE arko
-SET 
-    arko.provider_network_id = bnm.provider_network_id,
-    arko.provider_network_adjudication_details_override_reason_id = 3,
-    arko.network_level_id = CASE
-        WHEN bnm.provider_network_id IN (9, 10, 12) THEN 2
-        WHEN bnm.provider_network_id IN (8, 11) THEN 1
-        ELSE arko.network_level_id
-    END,
-    arko.network_level_adjudication_details_override_reason_id = 3
-FROM adjudication_result_key_override arko
-INNER JOIN adjudication_result_key ark ON arko.adjudication_result_key_id = ark.adjudication_result_key_id
-INNER JOIN claim_procedure cp ON ark.claim_procedure_id = cp.claim_procedure_id
-INNER JOIN claim c ON cp.claim_id = c.claim_id
-INNER JOIN dbo.bind_network_map bnm ON c.repriced_network = bnm.repriced_network
-LEFT JOIN provider_network ark_pn ON ark.provider_network_id = ark_pn.provider_network_id
-LEFT JOIN provider_network arko_pn ON arko.provider_network_id = arko_pn.provider_network_id
-WHERE 
-    c.modified_date >= DATEADD(DAY, -1, GETDATE())
-    AND cp.is_negated != '1'
-    AND c.adjudication_status_id NOT IN ('4', '15')
-    AND (
-        (arko_pn.provider_network_nm IS NOT NULL AND ISNULL(arko_pn.provider_network_nm, '') != ISNULL(bnm.provider_network_nm, ''))
-        OR (arko_pn.provider_network_nm IS NULL AND ISNULL(ark_pn.provider_network_nm, '') != ISNULL(bnm.provider_network_nm, ''))
-    );
+        -- Print error details
+        PRINT '=========================================';
+        PRINT 'STEP FAILED - INSERT MISSING ARO ROWS';
+        PRINT '=========================================';
+        PRINT 'Error Message: ' + @errMsg;
+        PRINT 'Error Severity: ' + CAST(@errSeverity AS VARCHAR(10));
+        PRINT 'Error Line: ' + CAST(@errLine AS VARCHAR(10));
+        PRINT '=========================================';
 
+        -- Re-raise the error to be caught by the outer CATCH block
+        RAISERROR(@errMsg, @errSeverity, @errState);
+    END CATCH
+
+    -- If we get here, Step 3 was successful
+    PRINT 'Step 3 (Insert Missing ARO) completed successfully';
+
+
+  -- =============================================
+    -- STEP 4: UPDATE EXISTING ARO ROWS
+    -- =============================================
+    SET @StepName = 'Update Existing ARO Rows'
+
+    BEGIN TRY
+        -- Step 4: Update arko rows
+        UPDATE arko
+        SET 
+            arko.provider_network_id = bnm.provider_network_id,
+            arko.provider_network_adjudication_details_override_reason_id = 3,
+            arko.network_level_id = CASE
+                WHEN bnm.provider_network_id IN (9, 10, 12) THEN 2
+                WHEN bnm.provider_network_id IN (8, 11) THEN 1
+                ELSE arko.network_level_id
+            END,
+            arko.network_level_adjudication_details_override_reason_id = 3
+        FROM adjudication_result_key_override arko
+        INNER JOIN adjudication_result_key ark ON arko.adjudication_result_key_id = ark.adjudication_result_key_id
+        INNER JOIN claim_procedure cp ON ark.claim_procedure_id = cp.claim_procedure_id
+        INNER JOIN claim c ON cp.claim_id = c.claim_id
+        INNER JOIN dbo.bind_network_map bnm ON c.repriced_network = bnm.repriced_network
+        LEFT JOIN provider_network ark_pn ON ark.provider_network_id = ark_pn.provider_network_id
+        LEFT JOIN provider_network arko_pn ON arko.provider_network_id = arko_pn.provider_network_id
+        WHERE 
+            c.modified_date >= DATEADD(DAY, -1, GETDATE())
+            AND cp.is_negated != '1'
+            AND c.adjudication_status_id NOT IN ('4', '15')
+            AND (
+                (arko_pn.provider_network_nm IS NOT NULL AND ISNULL(arko_pn.provider_network_nm, '') != ISNULL(bnm.provider_network_nm, ''))
+                OR (arko_pn.provider_network_nm IS NULL AND ISNULL(ark_pn.provider_network_nm, '') != ISNULL(bnm.provider_network_nm, ''))
+            );
+
+        -- Success message
+        PRINT 'Successfully updated ' + CAST(@@ROWCOUNT AS VARCHAR(10)) + ' existing ARO records';
+
+    END TRY
+    BEGIN CATCH
+        -- Capture error details for this specific step
+        SELECT 
+            @errMsg = 'ERROR in ' + @StepName + ' (Update Existing ARO): ' + ERROR_MESSAGE(),
+            @errSeverity = ERROR_SEVERITY(),
+            @errState = ERROR_STATE(),
+            @errLine = ERROR_LINE(),
+            @errProcedure = ISNULL(ERROR_PROCEDURE(), 'Update_ARO_Step');
+
+        -- Print error details
+        PRINT '=========================================';
+        PRINT 'STEP FAILED - UPDATE EXISTING ARO ROWS';
+        PRINT '=========================================';
+        PRINT 'Error Message: ' + @errMsg;
+        PRINT 'Error Severity: ' + CAST(@errSeverity AS VARCHAR(10));
+        PRINT 'Error Line: ' + CAST(@errLine AS VARCHAR(10));
+        PRINT '=========================================';
+
+        -- Re-raise the error to be caught by the outer CATCH block
+        RAISERROR(@errMsg, @errSeverity, @errState);
+    END CATCH
+
+    -- If we get here, Step 4 was successful
+    PRINT 'Step 4 (Update Existing ARO) completed successfully';
+	
 END TRY
 BEGIN CATCH
-    SELECT @errMsg = ERROR_MESSAGE() 
-    RAISERROR(@errMsg, 16, 1)
-    ROLLBACK TRANSACTION TRANS
-    RETURN
+    -- This is the outer CATCH block for any unhandled errors
+    SELECT 
+        @errMsg = 'UNHANDLED ERROR: ' + ERROR_MESSAGE(),
+        @errSeverity = ERROR_SEVERITY(),
+        @errState = ERROR_STATE(),
+        @errLine = ERROR_LINE(),
+        @errProcedure = ISNULL(ERROR_PROCEDURE(), 'Main_Transaction');
+
+    PRINT '=========================================';
+    PRINT 'TRANSACTION FAILED';
+    PRINT '=========================================';
+    PRINT 'Error Message: ' + @errMsg;
+    PRINT 'Error Severity: ' + CAST(@errSeverity AS VARCHAR(10));
+    PRINT 'Error Line: ' + CAST(@errLine AS VARCHAR(10));
+    PRINT '=========================================';
+
+    ROLLBACK TRANSACTION TRANS;
+    RAISERROR(@errMsg, @errSeverity, @errState);
+    RETURN;
 END CATCH
-COMMIT TRANSACTION TRANS
 
-
+COMMIT TRANSACTION TRANS;
+PRINT 'Transaction completed successfully';
