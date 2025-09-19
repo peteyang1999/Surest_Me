@@ -54,3 +54,164 @@ SELECT
     LTRIM(RTRIM(CAST('<x>' + REPLACE(CAST('<x>' + REPLACE(BulkColumn, CHAR(13) + CHAR(10), '</x><x>') + '</x>' AS XML).value('(/x)[2]', 'NVARCHAR(MAX)'), ',', '</x><x>') + '</x>' AS XML).value('(/x)[1]', 'NVARCHAR(MAX)'))) AS claim_ud
 FROM OPENROWSET(BULK 'D:\qcperf\MSSQL14.QCPERF\MSSQL\manualsql\claim_manual_process.csv', SINGLE_CLOB) AS Contents
 WHERE CHARINDEX(CHAR(13) + CHAR(10), BulkColumn) > 0
+
+
+
+
+
+
+
+-- =============================================
+-- ROBUST CSV IMPORT - HANDLES ALL LINE ENDING TYPES
+-- =============================================
+
+-- Clear the table first
+TRUNCATE TABLE dbo.claim_manual_process
+
+-- =============================================
+-- METHOD 1: Try All Line Ending Types
+-- =============================================
+
+-- Try Windows line breaks first (\r\n)
+INSERT INTO dbo.claim_manual_process (claim_ud)
+SELECT 
+    LTRIM(RTRIM(value)) AS claim_ud
+FROM OPENROWSET(BULK 'D:\qcperf\MSSQL14.QCPERF\MSSQL\manualsql\claim_manual_process.csv', SINGLE_CLOB) AS Contents
+CROSS APPLY STRING_SPLIT(BulkColumn, CHAR(13) + CHAR(10)) AS Lines
+WHERE LTRIM(RTRIM(value)) != ''
+AND LTRIM(RTRIM(value)) != 'claim_ud'
+AND LTRIM(RTRIM(value)) IS NOT NULL
+
+DECLARE @WindowsRows INT = @@ROWCOUNT
+PRINT 'Windows line breaks: ' + CAST(@WindowsRows AS VARCHAR(10)) + ' rows imported'
+
+-- If no rows, try Unix line breaks (\n)
+IF @WindowsRows = 0
+BEGIN
+    INSERT INTO dbo.claim_manual_process (claim_ud)
+    SELECT 
+        LTRIM(RTRIM(value)) AS claim_ud
+    FROM OPENROWSET(BULK 'D:\qcperf\MSSQL14.QCPERF\MSSQL\manualsql\claim_manual_process.csv', SINGLE_CLOB) AS Contents
+    CROSS APPLY STRING_SPLIT(BulkColumn, CHAR(10)) AS Lines
+    WHERE LTRIM(RTRIM(value)) != ''
+    AND LTRIM(RTRIM(value)) != 'claim_ud'
+    AND LTRIM(RTRIM(value)) IS NOT NULL
+    
+    DECLARE @UnixRows INT = @@ROWCOUNT
+    PRINT 'Unix line breaks: ' + CAST(@UnixRows AS VARCHAR(10)) + ' rows imported'
+END
+
+-- If still no rows, try Mac line breaks (\r)
+IF @@ROWCOUNT = 0
+BEGIN
+    INSERT INTO dbo.claim_manual_process (claim_ud)
+    SELECT 
+        LTRIM(RTRIM(value)) AS claim_ud
+    FROM OPENROWSET(BULK 'D:\qcperf\MSSQL14.QCPERF\MSSQL\manualsql\claim_manual_process.csv', SINGLE_CLOB) AS Contents
+    CROSS APPLY STRING_SPLIT(BulkColumn, CHAR(13)) AS Lines
+    WHERE LTRIM(RTRIM(value)) != ''
+    AND LTRIM(RTRIM(value)) != 'claim_ud'
+    AND LTRIM(RTRIM(value)) IS NOT NULL
+    
+    DECLARE @MacRows INT = @@ROWCOUNT
+    PRINT 'Mac line breaks: ' + CAST(@MacRows AS VARCHAR(10)) + ' rows imported'
+END
+
+-- =============================================
+-- METHOD 2: Manual Line-by-Line Parsing (Most Reliable)
+-- =============================================
+
+-- If STRING_SPLIT still doesn't work, use manual parsing
+IF @@ROWCOUNT = 0
+BEGIN
+    TRUNCATE TABLE dbo.claim_manual_process
+    
+    DECLARE @FileContent NVARCHAR(MAX)
+    DECLARE @CurrentLine NVARCHAR(MAX)
+    DECLARE @LineStart INT = 1
+    DECLARE @LineEnd INT
+    DECLARE @LineNumber INT = 0
+    DECLARE @TotalRows INT = 0
+    
+    -- Get the file content
+    SELECT @FileContent = BulkColumn
+    FROM OPENROWSET(BULK 'D:\qcperf\MSSQL14.QCPERF\MSSQL\manualsql\claim_manual_process.csv', SINGLE_CLOB) AS Contents
+    
+    -- Try different line break combinations
+    DECLARE @LineBreak CHAR(2) = CHAR(13) + CHAR(10)  -- Windows
+    
+    -- Check if Windows line breaks exist
+    IF CHARINDEX(@LineBreak, @FileContent) = 0
+    BEGIN
+        SET @LineBreak = CHAR(10)  -- Unix
+        IF CHARINDEX(@LineBreak, @FileContent) = 0
+            SET @LineBreak = CHAR(13)  -- Mac
+    END
+    
+    PRINT 'Using line break type: ' + CASE 
+        WHEN @LineBreak = CHAR(13) + CHAR(10) THEN 'Windows (\r\n)'
+        WHEN @LineBreak = CHAR(10) THEN 'Unix (\n)'
+        WHEN @LineBreak = CHAR(13) THEN 'Mac (\r)'
+        ELSE 'Unknown'
+    END
+    
+    -- Parse each line
+    WHILE @LineStart < LEN(@FileContent)
+    BEGIN
+        SET @LineEnd = CHARINDEX(@LineBreak, @FileContent, @LineStart)
+        
+        IF @LineEnd = 0
+            SET @LineEnd = LEN(@FileContent) + 1
+        
+        SET @CurrentLine = LTRIM(RTRIM(SUBSTRING(@FileContent, @LineStart, @LineEnd - @LineStart)))
+        SET @LineNumber = @LineNumber + 1
+        
+        -- Skip header and empty lines
+        IF @CurrentLine != '' 
+        AND @CurrentLine != 'claim_ud'
+        AND @CurrentLine IS NOT NULL
+        BEGIN
+            INSERT INTO dbo.claim_manual_process (claim_ud)
+            VALUES (@CurrentLine)
+            
+            SET @TotalRows = @TotalRows + 1
+        END
+        
+        SET @LineStart = @LineEnd + LEN(@LineBreak)
+    END
+    
+    PRINT 'Manual parsing completed. Rows imported: ' + CAST(@TotalRows AS VARCHAR(10))
+END
+
+-- =============================================
+-- METHOD 3: Debug - Show File Statistics
+-- =============================================
+
+-- Let's see what's in the file
+SELECT 
+    LEN(BulkColumn) AS FileLength,
+    LEN(BulkColumn) - LEN(REPLACE(BulkColumn, CHAR(13) + CHAR(10), '')) AS WindowsLineBreaks,
+    LEN(BulkColumn) - LEN(REPLACE(BulkColumn, CHAR(10), '')) AS UnixLineBreaks,
+    LEN(BulkColumn) - LEN(REPLACE(BulkColumn, CHAR(13), '')) AS MacLineBreaks,
+    LEFT(BulkColumn, 200) AS First200Chars,
+    RIGHT(BulkColumn, 200) AS Last200Chars
+FROM OPENROWSET(BULK 'D:\qcperf\MSSQL14.QCPERF\MSSQL\manualsql\claim_manual_process.csv', SINGLE_CLOB) AS Contents
+
+-- =============================================
+-- VERIFICATION
+-- =============================================
+
+-- Check what was imported
+SELECT COUNT(*) AS TotalRows FROM dbo.claim_manual_process
+
+-- Show first 10 rows
+SELECT TOP 10 * FROM dbo.claim_manual_process
+
+-- Show last 10 rows
+SELECT TOP 10 * FROM dbo.claim_manual_process ORDER BY ID DESC
+
+-- Check for any NULL values
+SELECT COUNT(*) AS NullCount FROM dbo.claim_manual_process WHERE claim_ud IS NULL
+
+-- Show all unique values (if not too many)
+SELECT DISTINCT claim_ud FROM dbo.claim_manual_process ORDER BY claim_ud
