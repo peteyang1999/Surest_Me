@@ -10,3 +10,12 @@ WITH (
 
 )
 
+
+Msg 4832, Level 16, State 1, Line 36
+Bulk load: An unexpected end of file was encountered in the data file.
+Msg 7399, Level 16, State 1, Line 36
+The OLE DB provider "BULK" for linked server "(null)" reported an error. The provider did not give any information about the error.
+Msg 7330, Level 16, State 2, Line 36
+Cannot fetch a row from OLE DB provider "BULK" for linked server "(null)".
+
+Completion time: 2025-09-19T13:46:08.6456939+00:00
