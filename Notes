@@ -45,3 +45,12 @@ INSERT INTO dbo.claim_manual_process (claim_ud)
 SELECT 
     LTRIM(RTRIM(CAST('<x>' + REPLACE(BulkColumn, CHAR(13) + CHAR(10), '</x><x>') + '</x>' AS XML).value('(/x)[2]', 'NVARCHAR(MAX)'))) AS claim_ud
 FROM OPENROWSET(BULK 'D:\qcperf\MSSQL14.QCPERF\MSSQL\manualsql\claim_manual_process.csv', SINGLE_CLOB) AS Contents
+
+
+
+-- This will import ALL rows, not just the first one
+INSERT INTO dbo.claim_manual_process (claim_ud)
+SELECT 
+    LTRIM(RTRIM(CAST('<x>' + REPLACE(CAST('<x>' + REPLACE(BulkColumn, CHAR(13) + CHAR(10), '</x><x>') + '</x>' AS XML).value('(/x)[2]', 'NVARCHAR(MAX)'), ',', '</x><x>') + '</x>' AS XML).value('(/x)[1]', 'NVARCHAR(MAX)'))) AS claim_ud
+FROM OPENROWSET(BULK 'D:\qcperf\MSSQL14.QCPERF\MSSQL\manualsql\claim_manual_process.csv', SINGLE_CLOB) AS Contents
+WHERE CHARINDEX(CHAR(13) + CHAR(10), BulkColumn) > 0
