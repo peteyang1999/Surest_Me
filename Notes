@@ -1,0 +1,12 @@
+
+BULK INSERT dbo.claim_manual_process
+FROM 'D:\qcperf\MSSQL14.QCPERF\MSSQL\manualsql\claim_manual_process.csv'
+WITH (
+		FIELDTERMINATOR = ',',
+		ROWTERMINATOR = '\r\n',
+		FIRSTROW = 1,
+		KEEPNULLS,
+		TABLOCK
+
+)
+
