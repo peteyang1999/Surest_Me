@@ -215,3 +215,26 @@ SELECT COUNT(*) AS NullCount FROM dbo.claim_manual_process WHERE claim_ud IS NUL
 
 -- Show all unique values (if not too many)
 SELECT DISTINCT claim_ud FROM dbo.claim_manual_process ORDER BY claim_ud
+
+
+
+
+-- This will parse each line manually without STRING_SPLIT
+WHILE @LineStart < LEN(@FileContent)
+BEGIN
+    -- Find the next line break
+    SET @LineEnd = CHARINDEX(@LineBreak, @FileContent, @LineStart)
+    
+    -- Extract the line
+    SET @CurrentLine = LTRIM(RTRIM(SUBSTRING(@FileContent, @LineStart, @LineEnd - @LineStart)))
+    
+    -- Insert if it's not empty or header
+    IF @CurrentLine != '' AND @CurrentLine != 'claim_ud'
+    BEGIN
+        INSERT INTO dbo.claim_manual_process (claim_ud)
+        VALUES (@CurrentLine)
+    END
+    
+    -- Move to next line
+    SET @LineStart = @LineEnd + LEN(@LineBreak)
+END
