@@ -19,3 +19,7 @@ Msg 7330, Level 16, State 2, Line 36
 Cannot fetch a row from OLE DB provider "BULK" for linked server "(null)".
 
 Completion time: 2025-09-19T13:46:08.6456939+00:00
+
+
+SELECT BulkColumn
+FROM OPENROWSET(BULK 'D:\qcperf\MSSQL14.QCPERF\MSSQL\manualsql\claim_manual_process.csv', SINGLE_CLOB) AS Contents
