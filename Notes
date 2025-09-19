@@ -23,3 +23,17 @@ Completion time: 2025-09-19T13:46:08.6456939+00:00
 
 SELECT BulkColumn
 FROM OPENROWSET(BULK 'D:\qcperf\MSSQL14.QCPERF\MSSQL\manualsql\claim_manual_process.csv', SINGLE_CLOB) AS Contents
+
+
+
+TRUNCATE TABLE dbo.claim_manual_process
+
+-- Import using OPENROWSET and STRING_SPLIT
+INSERT INTO dbo.claim_manual_process (claim_ud)
+SELECT 
+    LTRIM(RTRIM(value)) AS claim_ud
+FROM OPENROWSET(BULK 'D:\qcperf\MSSQL14.QCPERF\MSSQL\manualsql\claim_manual_process.csv', SINGLE_CLOB) AS Contents
+CROSS APPLY STRING_SPLIT(BulkColumn, CHAR(13) + CHAR(10)) AS Lines
+WHERE LTRIM(RTRIM(value)) != ''
+AND LTRIM(RTRIM(value)) != 'claim_ud'  -- Skip header row
+AND LTRIM(RTRIM(value)) IS NOT NULL
