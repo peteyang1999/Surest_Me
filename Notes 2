@@ -1,0 +1,252 @@
+-- =============================================
+-- CSV IMPORT FOR OLDER SQL SERVER VERSIONS (No STRING_SPLIT)
+-- =============================================
+
+-- Clear the table first
+TRUNCATE TABLE dbo.claim_manual_process
+
+-- =============================================
+-- METHOD 1: Manual Line-by-Line Parsing (Most Reliable)
+-- =============================================
+
+DECLARE @FileContent NVARCHAR(MAX)
+DECLARE @CurrentLine NVARCHAR(MAX)
+DECLARE @LineStart INT = 1
+DECLARE @LineEnd INT
+DECLARE @LineNumber INT = 0
+DECLARE @TotalRows INT = 0
+DECLARE @LineBreak CHAR(2) = CHAR(13) + CHAR(10)  -- Start with Windows
+
+-- Get the file content
+SELECT @FileContent = BulkColumn
+FROM OPENROWSET(BULK 'C:\Users\eu01240601\Downloads\claim_manual_process.csv', SINGLE_CLOB) AS Contents
+
+-- Check which line break type to use
+IF CHARINDEX(@LineBreak, @FileContent) = 0
+BEGIN
+    SET @LineBreak = CHAR(10)  -- Try Unix
+    IF CHARINDEX(@LineBreak, @FileContent) = 0
+        SET @LineBreak = CHAR(13)  -- Try Mac
+END
+
+PRINT 'Using line break type: ' + CASE 
+    WHEN @LineBreak = CHAR(13) + CHAR(10) THEN 'Windows (\r\n)'
+    WHEN @LineBreak = CHAR(10) THEN 'Unix (\n)'
+    WHEN @LineBreak = CHAR(13) THEN 'Mac (\r)'
+    ELSE 'Unknown'
+END
+
+-- Parse each line
+WHILE @LineStart < LEN(@FileContent)
+BEGIN
+    SET @LineEnd = CHARINDEX(@LineBreak, @FileContent, @LineStart)
+    
+    IF @LineEnd = 0
+        SET @LineEnd = LEN(@FileContent) + 1
+    
+    SET @CurrentLine = LTRIM(RTRIM(SUBSTRING(@FileContent, @LineStart, @LineEnd - @LineStart)))
+    SET @LineNumber = @LineNumber + 1
+    
+    -- Skip header and empty lines
+    IF @CurrentLine != '' 
+    AND @CurrentLine != 'claim_ud'
+    AND @CurrentLine IS NOT NULL
+    BEGIN
+        INSERT INTO dbo.claim_manual_process (claim_ud)
+        VALUES (@CurrentLine)
+        
+        SET @TotalRows = @TotalRows + 1
+    END
+    
+    SET @LineStart = @LineEnd + LEN(@LineBreak)
+END
+
+PRINT 'Import successful. Rows imported: ' + CAST(@TotalRows AS VARCHAR(10))
+
+-- =============================================
+-- METHOD 2: XML Parsing (Alternative)
+-- =============================================
+
+-- If Method 1 doesn't work, try this XML approach
+IF @TotalRows = 0
+BEGIN
+    TRUNCATE TABLE dbo.claim_manual_process
+    
+    -- Parse using XML (works with older SQL Server versions)
+    INSERT INTO dbo.claim_manual_process (claim_ud)
+    SELECT 
+        LTRIM(RTRIM(CAST('<x>' + REPLACE(BulkColumn, CHAR(13) + CHAR(10), '</x><x>') + '</x>' AS XML).value('(/x)[2]', 'NVARCHAR(MAX)'))) AS claim_ud
+    FROM OPENROWSET(BULK 'C:\Users\eu01240601\Downloads\claim_manual_process.csv', SINGLE_CLOB) AS Contents
+    WHERE CHARINDEX(CHAR(13) + CHAR(10), BulkColumn) > 0
+    
+    PRINT 'XML parsing. Rows imported: ' + CAST(@@ROWCOUNT AS VARCHAR(10))
+END
+
+-- =============================================
+-- METHOD 3: Create Custom STRING_SPLIT Function
+-- =============================================
+
+-- If you need STRING_SPLIT functionality, create a custom function
+IF OBJECT_ID('dbo.StringSplit') IS NOT NULL
+    DROP FUNCTION dbo.StringSplit
+
+GO
+
+CREATE FUNCTION dbo.StringSplit(@String NVARCHAR(MAX), @Delimiter CHAR(1))
+RETURNS TABLE
+AS
+RETURN
+(
+    WITH SplitCTE AS (
+        SELECT 
+            1 AS Position,
+            CASE 
+                WHEN CHARINDEX(@Delimiter, @String) = 0 
+                THEN @String
+                ELSE LEFT(@String, CHARINDEX(@Delimiter, @String) - 1)
+            END AS Value,
+            @String AS Remaining
+        UNION ALL
+        SELECT 
+            Position + 1,
+            CASE 
+                WHEN CHARINDEX(@Delimiter, Remaining) = 0 
+                THEN Remaining
+                ELSE LEFT(Remaining, CHARINDEX(@Delimiter, Remaining) - 1)
+            END,
+            CASE 
+                WHEN CHARINDEX(@Delimiter, Remaining) = 0 
+                THEN ''
+                ELSE RIGHT(Remaining, LEN(Remaining) - CHARINDEX(@Delimiter, Remaining))
+            END
+        FROM SplitCTE
+        WHERE LEN(Remaining) > 0
+        AND CHARINDEX(@Delimiter, Remaining) > 0
+    )
+    SELECT Position, Value
+    FROM SplitCTE
+)
+
+GO
+
+-- =============================================
+-- METHOD 4: Use Custom STRING_SPLIT Function
+-- =============================================
+
+-- Now you can use the custom function
+TRUNCATE TABLE dbo.claim_manual_process
+
+INSERT INTO dbo.claim_manual_process (claim_ud)
+SELECT 
+    LTRIM(RTRIM(Value)) AS claim_ud
+FROM OPENROWSET(BULK 'C:\Users\eu01240601\Downloads\claim_manual_process.csv', SINGLE_CLOB) AS Contents
+CROSS APPLY dbo.StringSplit(BulkColumn, CHAR(13) + CHAR(10)) AS Lines
+WHERE LTRIM(RTRIM(Value)) != ''
+AND LTRIM(RTRIM(Value)) != 'claim_ud'
+AND LTRIM(RTRIM(Value)) IS NOT NULL
+
+PRINT 'Custom STRING_SPLIT function. Rows imported: ' + CAST(@@ROWCOUNT AS VARCHAR(10))
+
+-- =============================================
+-- METHOD 5: Simple Regex-like Parsing
+-- =============================================
+
+-- Alternative approach using PATINDEX
+IF @@ROWCOUNT = 0
+BEGIN
+    TRUNCATE TABLE dbo.claim_manual_process
+    
+    DECLARE @FileContent2 NVARCHAR(MAX)
+    DECLARE @CurrentLine2 NVARCHAR(MAX)
+    DECLARE @LineStart2 INT = 1
+    DECLARE @LineEnd2 INT
+    DECLARE @LineNumber2 INT = 0
+    DECLARE @TotalRows2 INT = 0
+    
+    -- Get the file content
+    SELECT @FileContent2 = BulkColumn
+    FROM OPENROWSET(BULK 'C:\Users\eu01240601\Downloads\claim_manual_process.csv', SINGLE_CLOB) AS Contents
+    
+    -- Skip header row
+    SET @LineStart2 = CHARINDEX(CHAR(13) + CHAR(10), @FileContent2) + 2
+    
+    -- Parse each line
+    WHILE @LineStart2 < LEN(@FileContent2)
+    BEGIN
+        SET @LineEnd2 = CHARINDEX(CHAR(13) + CHAR(10), @FileContent2, @LineStart2)
+        
+        IF @LineEnd2 = 0
+            SET @LineEnd2 = LEN(@FileContent2) + 1
+        
+        SET @CurrentLine2 = LTRIM(RTRIM(SUBSTRING(@FileContent2, @LineStart2, @LineEnd2 - @LineStart2)))
+        SET @LineNumber2 = @LineNumber2 + 1
+        
+        -- Skip empty lines
+        IF @CurrentLine2 != '' AND @CurrentLine2 IS NOT NULL
+        BEGIN
+            INSERT INTO dbo.claim_manual_process (claim_ud)
+            VALUES (@CurrentLine2)
+            
+            SET @TotalRows2 = @TotalRows2 + 1
+        END
+        
+        SET @LineStart2 = @LineEnd2 + 2
+    END
+    
+    PRINT 'Simple parsing. Rows imported: ' + CAST(@TotalRows2 AS VARCHAR(10))
+END
+
+-- =============================================
+-- VERIFICATION
+-- =============================================
+
+-- Check what was imported
+SELECT COUNT(*) AS TotalRows FROM dbo.claim_manual_process
+
+-- Show first 10 rows
+SELECT TOP 10 * FROM dbo.claim_manual_process
+
+-- Show last 10 rows
+SELECT TOP 10 * FROM dbo.claim_manual_process ORDER BY ID DESC
+
+-- Check for any NULL values
+SELECT COUNT(*) AS NullCount FROM dbo.claim_manual_process WHERE claim_ud IS NULL
+
+-- Show all unique values (if not too many)
+SELECT DISTINCT claim_ud FROM dbo.claim_manual_process ORDER BY claim_ud
+
+-- =============================================
+-- CLEANUP
+-- =============================================
+
+-- Drop the custom function if you don't need it
+-- DROP FUNCTION dbo.StringSplit
+
+-- =============================================
+-- TROUBLESHOOTING FOR OLDER SQL SERVER
+-- =============================================
+
+/*
+COMMON ISSUES WITH OLDER SQL SERVER VERSIONS:
+
+1. NO STRING_SPLIT:
+   - Use manual parsing or XML approach
+   - Create custom function if needed
+
+2. LIMITED XML SUPPORT:
+   - Use simple string manipulation
+   - Use CHARINDEX and SUBSTRING
+
+3. PERFORMANCE:
+   - Manual parsing is slower but more reliable
+   - XML parsing is faster but less flexible
+
+4. COMPATIBILITY:
+   - Test with your specific SQL Server version
+   - Use simplest approach that works
+
+RECOMMENDED APPROACH:
+- Start with Method 1 (Manual parsing)
+- If that fails, try Method 2 (XML)
+- Use Method 3 (Custom function) only if needed
+*/
