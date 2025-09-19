@@ -37,3 +37,11 @@ CROSS APPLY STRING_SPLIT(BulkColumn, CHAR(13) + CHAR(10)) AS Lines
 WHERE LTRIM(RTRIM(value)) != ''
 AND LTRIM(RTRIM(value)) != 'claim_ud'  -- Skip header row
 AND LTRIM(RTRIM(value)) IS NOT NULL
+
+
+
+-- Simple approach using XML parsing
+INSERT INTO dbo.claim_manual_process (claim_ud)
+SELECT 
+    LTRIM(RTRIM(CAST('<x>' + REPLACE(BulkColumn, CHAR(13) + CHAR(10), '</x><x>') + '</x>' AS XML).value('(/x)[2]', 'NVARCHAR(MAX)'))) AS claim_ud
+FROM OPENROWSET(BULK 'D:\qcperf\MSSQL14.QCPERF\MSSQL\manualsql\claim_manual_process.csv', SINGLE_CLOB) AS Contents
