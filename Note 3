@@ -11,6 +11,7 @@ param(
 
 Write-Host "Connecting to SQL Server: $ServerInstance" -ForegroundColor Green
 Write-Host "Target Databases: $($TargetDatabases -join ', ')" -ForegroundColor Cyan
+Write-Host "Script executed at: $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')" -ForegroundColor Magenta
 Write-Host "Querying scheduled jobs..." -ForegroundColor Yellow
 
 try {
