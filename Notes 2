@@ -145,3 +145,41 @@ At line:1 char:1
     + CategoryInfo          : ObjectNotFound: (Microsoft.Power....InstallPackage:InstallPackage) [Install-Package], Exception
     + FullyQualifiedErrorId : SourceNotFound,Microsoft.PowerShell.PackageManagement.Cmdlets.InstallPackage 
 
+
+
+
+
+
+     Write-Host "`nQuery completed successfully!" -ForegroundColor Green
+    
+} catch {
+    Write-Error "Failed to query SQL Server jobs: $($_.Exception.Message)"
+    Write-Host "Make sure you have:" -ForegroundColor Red
+    Write-Host "1. Access to the SQL Server instance: $ServerInstance" -ForegroundColor Red
+    Write-Host "2. Appropriate permissions to read msdb database" -ForegroundColor Red
+    Write-Host "3. SQL Server is running and accessible" -ForegroundColor Red
+}
+Write-Host "`nUsage Examples:" -ForegroundColor Cyan
+Write-Host ".\Get-SqlServerJobs.ps1                                    # Basic job list for target databases"
+Write-Host ".\Get-SqlServerJobs.ps1 -Detailed                          # Detailed job information with steps"
+Write-Host ".\Get-SqlServerJobs.ps1 -ShowAllJobs                       # Show ALL jobs (not filtered by database)"
+Write-Host ".\Get-SqlServerJobs.ps1 -TargetDatabases @('ase','qc_core') # Custom database list"
+Write-Host ".\Get-SqlServerJobs.ps1 -ServerInstance 'OtherServer\Instance'  # Different server" : Failed to query SQL Server jobs: Exception calling "Fill" with "1" argument(s): "Invalid 
+column name 'next_run_date'.
+Invalid column name 'next_run_date'.
+Invalid column name 'next_run_time'."
+    + CategoryInfo          : NotSpecified: (:) [Write-Error], WriteErrorException
+    + FullyQualifiedErrorId : Microsoft.PowerShell.Commands.WriteErrorException
+ 
+Make sure you have:
+1. Access to the SQL Server instance: PLX-SQLPERF\QCPERF
+2. Appropriate permissions to read msdb database
+3. SQL Server is running and accessible
+
+Usage Examples:
+.\Get-SqlServerJobs.ps1                                    # Basic job list for target databases
+.\Get-SqlServerJobs.ps1 -Detailed                          # Detailed job information with steps
+.\Get-SqlServerJobs.ps1 -ShowAllJobs                       # Show ALL jobs (not filtered by database)
+.\Get-SqlServerJobs.ps1 -TargetDatabases @('ase','qc_core') # Custom database list
+.\Get-SqlServerJobs.ps1 -ServerInstance 'OtherServer\Instance'  # Different server 
+
