@@ -107,9 +107,9 @@ SELECT DISTINCT
         ELSE CAST(s.freq_subday_interval AS VARCHAR(10))
     END AS TimeOrInterval,
     CASE 
-        WHEN s.next_run_date = 0 THEN 'Never'
-        ELSE CONVERT(VARCHAR(10), CONVERT(DATETIME, CAST(s.next_run_date AS VARCHAR(8)), 112), 120) + ' ' +
-             STUFF(STUFF(RIGHT('000000' + CAST(s.next_run_time AS VARCHAR(6)), 6), 3, 0, ':'), 6, 0, ':')
+        WHEN jsched.next_run_date = 0 THEN 'Never'
+        ELSE CONVERT(VARCHAR(10), CONVERT(DATETIME, CAST(jsched.next_run_date AS VARCHAR(8)), 112), 120) + ' ' +
+             STUFF(STUFF(RIGHT('000000' + CAST(jsched.next_run_time AS VARCHAR(6)), 6), 3, 0, ':'), 6, 0, ':')
     END AS NextRunTime
 FROM msdb.dbo.sysjobs j
 LEFT JOIN msdb.dbo.syscategories c ON j.category_id = c.category_id
@@ -161,9 +161,9 @@ SELECT DISTINCT
         ELSE CAST(s.freq_subday_interval AS VARCHAR(10))
     END AS TimeOrInterval,
     CASE 
-        WHEN s.next_run_date = 0 THEN 'Never'
-        ELSE CONVERT(VARCHAR(10), CONVERT(DATETIME, CAST(s.next_run_date AS VARCHAR(8)), 112), 120) + ' ' +
-             STUFF(STUFF(RIGHT('000000' + CAST(s.next_run_time AS VARCHAR(6)), 6), 3, 0, ':'), 6, 0, ':')
+        WHEN jsched.next_run_date = 0 THEN 'Never'
+        ELSE CONVERT(VARCHAR(10), CONVERT(DATETIME, CAST(jsched.next_run_date AS VARCHAR(8)), 112), 120) + ' ' +
+             STUFF(STUFF(RIGHT('000000' + CAST(jsched.next_run_time AS VARCHAR(6)), 6), 3, 0, ':'), 6, 0, ':')
     END AS NextRunTime
 FROM msdb.dbo.sysjobs j
 LEFT JOIN msdb.dbo.syscategories c ON j.category_id = c.category_id
@@ -301,9 +301,9 @@ SELECT DISTINCT
         ELSE CAST(s.freq_subday_interval AS VARCHAR(10))
     END AS TimeOrInterval,
     CASE 
-        WHEN s.next_run_date = 0 THEN 'Never'
-        ELSE CONVERT(VARCHAR(10), CONVERT(DATETIME, CAST(s.next_run_date AS VARCHAR(8)), 112), 120) + ' ' +
-             STUFF(STUFF(RIGHT('000000' + CAST(s.next_run_time AS VARCHAR(6)), 6), 3, 0, ':'), 6, 0, ':')
+        WHEN jsched.next_run_date = 0 THEN 'Never'
+        ELSE CONVERT(VARCHAR(10), CONVERT(DATETIME, CAST(jsched.next_run_date AS VARCHAR(8)), 112), 120) + ' ' +
+             STUFF(STUFF(RIGHT('000000' + CAST(jsched.next_run_time AS VARCHAR(6)), 6), 3, 0, ':'), 6, 0, ':')
     END AS NextRunTime
 FROM msdb.dbo.sysjobs j
 LEFT JOIN msdb.dbo.syscategories c ON j.category_id = c.category_id
@@ -354,9 +354,9 @@ SELECT DISTINCT
         ELSE CAST(s.freq_subday_interval AS VARCHAR(10))
     END AS TimeOrInterval,
     CASE 
-        WHEN s.next_run_date = 0 THEN 'Never'
-        ELSE CONVERT(VARCHAR(10), CONVERT(DATETIME, CAST(s.next_run_date AS VARCHAR(8)), 112), 120) + ' ' +
-             STUFF(STUFF(RIGHT('000000' + CAST(s.next_run_time AS VARCHAR(6)), 6), 3, 0, ':'), 6, 0, ':')
+        WHEN jsched.next_run_date = 0 THEN 'Never'
+        ELSE CONVERT(VARCHAR(10), CONVERT(DATETIME, CAST(jsched.next_run_date AS VARCHAR(8)), 112), 120) + ' ' +
+             STUFF(STUFF(RIGHT('000000' + CAST(jsched.next_run_time AS VARCHAR(6)), 6), 3, 0, ':'), 6, 0, ':')
     END AS NextRunTime
 FROM msdb.dbo.sysjobs j
 LEFT JOIN msdb.dbo.syscategories c ON j.category_id = c.category_id
