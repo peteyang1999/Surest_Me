@@ -137,3 +137,11 @@ Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass
 Would you like a version that exports the results to a CSV or filters by specific job names or schedule types?
 
 
+
+ Install-Package : Unable to find package source 'NuGet'. Use Get-PackageSource to see all available package sources.
+At line:1 char:1
++ Install-Package -Name Microsoft.SqlServer.SqlManagementObjects -Sourc ...
++ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : ObjectNotFound: (Microsoft.Power....InstallPackage:InstallPackage) [Install-Package], Exception
+    + FullyQualifiedErrorId : SourceNotFound,Microsoft.PowerShell.PackageManagement.Cmdlets.InstallPackage 
+
