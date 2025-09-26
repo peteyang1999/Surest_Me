@@ -1,0 +1,208 @@
+# PowerShell script to get all SQL Server scheduled jobs
+# Target Server: PLX-SQLPERF\QCPERF
+
+param(
+    [string]$ServerInstance = "PLX-SQLPERF\QCPERF",
+    [string]$Database = "msdb",
+    [switch]$Detailed
+)
+
+Write-Host "Connecting to SQL Server: $ServerInstance" -ForegroundColor Green
+Write-Host "Querying scheduled jobs..." -ForegroundColor Yellow
+
+try {
+    # Method 1: Using SQL Server PowerShell module (if available)
+    if (Get-Module -ListAvailable -Name SqlServer) {
+        Write-Host "Using SQL Server PowerShell module..." -ForegroundColor Cyan
+        
+        Import-Module SqlServer -Force
+        
+        if ($Detailed) {
+            # Get detailed job information
+            $jobs = Invoke-Sqlcmd -ServerInstance $ServerInstance -Database $Database -Query @"
+SELECT 
+    j.job_id,
+    j.name AS JobName,
+    j.enabled,
+    j.description,
+    j.date_created,
+    j.date_modified,
+    j.version_number,
+    j.start_step_id,
+    j.category_id,
+    c.name AS CategoryName,
+    j.owner_sid,
+    j.notify_level_eventlog,
+    j.notify_level_email,
+    j.notify_level_netsend,
+    j.notify_level_page,
+    j.notify_email_operator_id,
+    j.notify_netsend_operator_id,
+    j.notify_page_operator_id,
+    j.delete_level,
+    j.originating_server_id,
+    j.master_server_id
+FROM msdb.dbo.sysjobs j
+LEFT JOIN msdb.dbo.syscategories c ON j.category_id = c.category_id
+ORDER BY j.name
+"@
+        } else {
+            # Get basic job information
+            $jobs = Invoke-Sqlcmd -ServerInstance $ServerInstance -Database $Database -Query @"
+SELECT 
+    j.job_id,
+    j.name AS JobName,
+    j.enabled,
+    j.description,
+    j.date_created,
+    j.date_modified,
+    c.name AS CategoryName
+FROM msdb.dbo.sysjobs j
+LEFT JOIN msdb.dbo.syscategories c ON j.category_id = c.category_id
+ORDER BY j.name
+"@
+        }
+        
+        $jobs | Format-Table -AutoSize
+        
+        # Also get job steps if detailed
+        if ($Detailed) {
+            Write-Host "`nJob Steps:" -ForegroundColor Cyan
+            $jobSteps = Invoke-Sqlcmd -ServerInstance $ServerInstance -Database $Database -Query @"
+SELECT 
+    js.job_id,
+    j.name AS JobName,
+    js.step_id,
+    js.step_name,
+    js.subsystem,
+    js.command,
+    js.database_name,
+    js.database_user_name,
+    js.retry_attempts,
+    js.retry_interval,
+    js.on_success_action,
+    js.on_fail_action,
+    js.last_run_outcome,
+    js.last_run_date,
+    js.last_run_time,
+    js.last_run_duration
+FROM msdb.dbo.sysjobsteps js
+INNER JOIN msdb.dbo.sysjobs j ON js.job_id = j.job_id
+ORDER BY j.name, js.step_id
+"@
+            $jobSteps | Format-Table -AutoSize
+        }
+        
+    } else {
+        Write-Host "SQL Server PowerShell module not found. Using .NET SQL connection..." -ForegroundColor Yellow
+        
+        # Method 2: Using .NET SQL connection (no additional modules required)
+        $connectionString = "Server=$ServerInstance;Database=$Database;Integrated Security=true;"
+        
+        $connection = New-Object System.Data.SqlClient.SqlConnection($connectionString)
+        $connection.Open()
+        
+        if ($Detailed) {
+            $query = @"
+SELECT 
+    j.job_id,
+    j.name AS JobName,
+    j.enabled,
+    j.description,
+    j.date_created,
+    j.date_modified,
+    j.version_number,
+    j.start_step_id,
+    j.category_id,
+    c.name AS CategoryName,
+    j.owner_sid,
+    j.notify_level_eventlog,
+    j.notify_level_email,
+    j.notify_level_netsend,
+    j.notify_level_page,
+    j.notify_email_operator_id,
+    j.notify_netsend_operator_id,
+    j.notify_page_operator_id,
+    j.delete_level,
+    j.originating_server_id,
+    j.master_server_id
+FROM msdb.dbo.sysjobs j
+LEFT JOIN msdb.dbo.syscategories c ON j.category_id = c.category_id
+ORDER BY j.name
+"@
+        } else {
+            $query = @"
+SELECT 
+    j.job_id,
+    j.name AS JobName,
+    j.enabled,
+    j.description,
+    j.date_created,
+    j.date_modified,
+    c.name AS CategoryName
+FROM msdb.dbo.sysjobs j
+LEFT JOIN msdb.dbo.syscategories c ON j.category_id = c.category_id
+ORDER BY j.name
+"@
+        }
+        
+        $command = New-Object System.Data.SqlClient.SqlCommand($query, $connection)
+        $adapter = New-Object System.Data.SqlClient.SqlDataAdapter($command)
+        $dataset = New-Object System.Data.DataSet
+        $adapter.Fill($dataset)
+        
+        $jobs = $dataset.Tables[0]
+        $jobs | Format-Table -AutoSize
+        
+        # Also get job steps if detailed
+        if ($Detailed) {
+            Write-Host "`nJob Steps:" -ForegroundColor Cyan
+            $stepsQuery = @"
+SELECT 
+    js.job_id,
+    j.name AS JobName,
+    js.step_id,
+    js.step_name,
+    js.subsystem,
+    js.command,
+    js.database_name,
+    js.database_user_name,
+    js.retry_attempts,
+    js.retry_interval,
+    js.on_success_action,
+    js.on_fail_action,
+    js.last_run_outcome,
+    js.last_run_date,
+    js.last_run_time,
+    js.last_run_duration
+FROM msdb.dbo.sysjobsteps js
+INNER JOIN msdb.dbo.sysjobs j ON js.job_id = j.job_id
+ORDER BY j.name, js.step_id
+"@
+            
+            $stepsCommand = New-Object System.Data.SqlClient.SqlCommand($stepsQuery, $connection)
+            $stepsAdapter = New-Object System.Data.SqlClient.SqlDataAdapter($stepsCommand)
+            $stepsDataset = New-Object System.Data.DataSet
+            $stepsAdapter.Fill($stepsDataset)
+            
+            $jobSteps = $stepsDataset.Tables[0]
+            $jobSteps | Format-Table -AutoSize
+        }
+        
+        $connection.Close()
+    }
+    
+    Write-Host "`nQuery completed successfully!" -ForegroundColor Green
+    
+} catch {
+    Write-Error "Failed to query SQL Server jobs: $($_.Exception.Message)"
+    Write-Host "Make sure you have:" -ForegroundColor Red
+    Write-Host "1. Access to the SQL Server instance: $ServerInstance" -ForegroundColor Red
+    Write-Host "2. Appropriate permissions to read msdb database" -ForegroundColor Red
+    Write-Host "3. SQL Server is running and accessible" -ForegroundColor Red
+}
+
+Write-Host "`nUsage Examples:" -ForegroundColor Cyan
+Write-Host ".\Get-SqlServerJobs.ps1                                    # Basic job list"
+Write-Host ".\Get-SqlServerJobs.ps1 -Detailed                          # Detailed job information with steps"
+Write-Host ".\Get-SqlServerJobs.ps1 -ServerInstance 'OtherServer\Instance'  # Different server"
