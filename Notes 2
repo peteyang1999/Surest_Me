@@ -1,185 +1,91 @@
-# Load SQL Server SMO (SQL Management Objects)
-Add-Type -AssemblyName "Microsoft.SqlServer.Smo"
-Add-Type -AssemblyName "Microsoft.SqlServer.SqlEnum"
+PS C:\Users\peter.sengkhamee\Documents> .\Get-SqlServerJobs.ps1 -ShowAllJobs
+Connecting to SQL Server: PLX-SQLPROD\QCPROD
+Target Databases: ase, dba_tools, import, import_bkup, qc_core
+Script executed at: 2025-10-03 17:43:35
+Querying scheduled jobs...
+SQL Server PowerShell module not found. Using .NET SQL connection...
+70
 
-# Define SQL Server instance
-$serverName = "PLX-SQLPROD\QCPROD" 
-$server = New-Object Microsoft.SqlServer.Management.Smo.Server($serverName)
-
-# Get SQL Server Agent jobs
-$jobs = $server.JobServer.Jobs
-
-# Loop through jobs and get schedule details
-foreach ($job in $jobs) {
-    foreach ($schedule in $job.JobSchedules) {
-        if ($schedule.IsEnabled) {
-            Write-Host "Job Name: $($job.Name)"
-            Write-Host "  Schedule Name: $($schedule.Name)"
-            Write-Host "  Frequency Type: $($schedule.FrequencyTypes)"
-            Write-Host "  Frequency Interval: $($schedule.FrequencyInterval)"
-            Write-Host "  Frequency Subday Type: $($schedule.FrequencySubDayTypes)"
-            Write-Host "  Frequency Subday Interval: $($schedule.FrequencySubDayInterval)"
-            Write-Host "  Active Start Time: $($schedule.ActiveStartTimeOfDay)"
-            Write-Host "  Active Start Date: $($schedule.ActiveStartDate)"
-            Write-Host "  Enabled: $($schedule.IsEnabled)"
-            Write-Host "---------------------------------------------"
-        }
-    }
-}
-
-
-
-To run the PowerShell script that queries SQL Server Agent schedules, follow these steps:
-
----
-
-### ✅ **Step-by-Step Instructions**
-
-#### **1. Open PowerShell as Administrator**
-- Press `Windows + X` and choose **Windows PowerShell (Admin)** or **Terminal (Admin)**.
-- This ensures you have the necessary permissions.
-
-#### **2. Ensure SMO is Installed**
-If you haven’t installed **SQL Server Management Objects (SMO)**, run this command to install it via PowerShell:
-
-```powershell
-Install-Package -Name Microsoft.SqlServer.SqlManagementObjects -Source NuGet -Force
-```
-
-> You may need to install NuGet provider if prompted.
-
-#### **3. Save the Script to a `.ps1` File**
-Open Notepad or your favorite editor, paste the script, and save it as:
-
-```plaintext
-Get-SqlAgentSchedules.ps1
-```
-
-#### **4. Modify the Server Name**
-Update this line in the script to match your SQL Server instance:
-
-```powershell
-$serverName = "localhost"  # Change to "YourServerName\InstanceName" if needed
-```
-
-#### **5. Run the Script**
-Navigate to the folder where you saved the script and run:
-
-```powershell
-Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass
-.\Get-SqlAgentSchedules.ps1
-```
-
----
-
-### 🧠 Tip: Troubleshooting
-
-- If you get an error about SMO types not found, make sure the SMO package is installed and PowerShell is restarted.
-- If connecting to a remote SQL Server, ensure you have network access and permissions.
-- You can also run the script inside **SQL Server Management Studio (SSMS)** PowerShell host.
-
----
-
-Would you like a version that exports the results to a CSV or filters by specific job names or schedule types?
-
-
-To run the PowerShell script that queries SQL Server Agent schedules, follow these steps:
-
----
-
-### ✅ **Step-by-Step Instructions**
-
-#### **1. Open PowerShell as Administrator**
-- Press `Windows + X` and choose **Windows PowerShell (Admin)** or **Terminal (Admin)**.
-- This ensures you have the necessary permissions.
-
-#### **2. Ensure SMO is Installed**
-If you haven’t installed **SQL Server Management Objects (SMO)**, run this command to install it via PowerShell:
-
-```powershell
-Install-Package -Name Microsoft.SqlServer.SqlManagementObjects -Source NuGet -Force
-```
-
-> You may need to install NuGet provider if prompted.
-
-#### **3. Save the Script to a `.ps1` File**
-Open Notepad or your favorite editor, paste the script, and save it as:
-
-```plaintext
-Get-SqlAgentSchedules.ps1
-```
-
-#### **4. Modify the Server Name**
-Update this line in the script to match your SQL Server instance:
-
-```powershell
-$serverName = "localhost"  # Change to "YourServerName\InstanceName" if needed
-```
-
-#### **5. Run the Script**
-Navigate to the folder where you saved the script and run:
-
-```powershell
-Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass
-.\Get-SqlAgentSchedules.ps1
-```
-
----
-
-### 🧠 Tip: Troubleshooting
-
-- If you get an error about SMO types not found, make sure the SMO package is installed and PowerShell is restarted.
-- If connecting to a remote SQL Server, ensure you have network access and permissions.
-- You can also run the script inside **SQL Server Management Studio (SSMS)** PowerShell host.
-
----
-
-Would you like a version that exports the results to a CSV or filters by specific job names or schedule types?
+job_id                               JobName                                                    enabled description
+------                               -------                                                    ------- -----------
+f1d82df5-d8e7-45c9-9272-cb9ac677803a 835_export_Echo                                                  1 No description available.
+0f2d4a2e-b79f-4bdc-9d0e-3449aa5648ec 835_export_UHC                                                   1 No description available.
+89837ae8-2cbf-4fce-9bdb-ebebe38372a3 Agent history clean up: distribution                             1 Removes replication agent history from the di...
+3a2460e3-d89d-4ce7-a757-a429d3345c02 bind-835_force-out                                               1 No description available.
+bdb9261e-a705-4a34-becd-4b291f9f8a8f BIND-BDNOELG_Network_override                                    1 Plexis does not currently apply networks on c...
+bdb9261e-a705-4a34-becd-4b291f9f8a8f BIND-BDNOELG_Network_override                                    1 Plexis does not currently apply networks on c...
+5232c398-09be-4068-b6de-8890047ddb38 BIND-close_claims_stuck_in_approved_status                       1 Due to a known but within QC some claims that...
+179a1cf5-796e-4f37-ab08-263379b59370 BIND-daily_BDOI_assignment                                       1 Daily job that assigns the BDOI member user a...
+bb51a4e0-8692-4d95-bdff-fdb981988cb4 BIND-delete_process_locks_older_than_3hrs                        1 Do to a bug in our current version of QC the ...
+7b7fc76e-e0e1-4b4b-9b30-d53a3773e70f BIND-diagnosise_code_fill                                        1 Script that goes and attaches the correct dia...
+7e6b0972-c9c6-4e03-903f-36bc7a779d81 BIND-EOB_Extract                                                 0 This Job looks at all claims that were put on...
+0f65513b-f62f-48c5-93b6-b3c16de245a8 BIND-fix_unbalaced_negated_claims                                1 Finds negated claims that have either unbalac...
+cd5d89e7-8e35-4eb6-b2a0-d1efc9d9c452 BIND-Fuzzy_Member_Match_Step-1                                   1 No description available.
+0526e44b-e93b-4a22-b383-8f9feb26bd1e BIND-Fuzzy_Member_Match_Step-2                                   1 No description available.
+c2bfb4c6-286d-4fb9-8f40-f1b397fef56b BIND-Network_Override                                            1 QC is not setup to handle the way that Bind d...
+2f32519a-e29e-4712-b397-c11274995597 BIND-overpayments                                                1 Daily job that generates overpayment letter json
+40ee85e8-6a19-41c0-a439-5c7aa3c3ad10 BIND-Parent_child_claim_fix                                      1 Job that fixes broken or missing parent refer...
+cb8fcb35-5d99-4846-9c43-41961ee1dbf9 BIND-provider-network-sync                                       1 exec [dbo].[bind_update_provider_network_rank]
+67f565fd-ec7b-4a70-b3d0-68b1416e9508 BIND-QC4520_Processing                                           1 This job identifies claims that have the qc45...
+454d8885-abef-49f6-8813-78ac96b3f6d1 BYPASS-835_export_Echo_21.1                                      1 No description available.
+9e6c716d-719e-41ee-8976-b3acd9e4da5c BYPASS-835_export_UHC_21.1                                       1 No description available.
+5500dcbf-0f6b-4363-8c1d-200f8ceaba75 BYPASS-835_translation_to_x12                                    0 No description available.
+06bbfc64-5533-4c94-807f-72d6056aae61 Claims Processing Automation Job Daily                           1 Schedule job to automaticly process all 11 cl...
+38a27310-727e-4788-b0e9-2fda10d4c55c Claims Processing Automation Job Friday                          1 No description available.
+38eecb0c-6298-4f37-9435-bb31e646ec87 Claims Processing Automation Job Thursday                        1 No description available.
+6cdcc6fe-445a-4c5d-86d5-8cf870fb7934 Cleaup MSDB backup history.Subplan_1                             1 No description available.
+7616ac85-1b88-464e-bfc1-545214de62e7 CommandLog Cleanup                                               1 Source: https://ola.hallengren.com
+7be7bb81-6a41-4896-95c7-16b0a2cca706 Database Tools - BlitzFirst                                      0 No description available.
+ec4d0e93-fbef-4736-8f0b-7404209fe98c DatabaseBackup - Local - USER_DATABASES - DIFF                   0 Source: https://ola.hallengren.com
+ec4d0e93-fbef-4736-8f0b-7404209fe98c DatabaseBackup - Local - USER_DATABASES - DIFF                   0 Source: https://ola.hallengren.com
+ec4d0e93-fbef-4736-8f0b-7404209fe98c DatabaseBackup - Local - USER_DATABASES - DIFF                   0 Source: https://ola.hallengren.com
+3b819597-1ac7-41fd-811b-439e577c838f DatabaseBackup - Local - USER_DATABASES - FULL                   0 Source: https://ola.hallengren.com
+5f3ddafc-0030-4373-89bf-36d03824ec14 DatabaseBackup - Local - USER_DATABASES - LOG                    0 Source: https://ola.hallengren.com
+5f3ddafc-0030-4373-89bf-36d03824ec14 DatabaseBackup - Local - USER_DATABASES - LOG                    0 Source: https://ola.hallengren.com
+5f3ddafc-0030-4373-89bf-36d03824ec14 DatabaseBackup - Local - USER_DATABASES - LOG                    0 Source: https://ola.hallengren.com
+24160286-188f-4536-b87c-ec1f3e080fd0 DatabaseBackup - SYSTEM_DATABASES - FULL                         1 Source: https://ola.hallengren.com
+20e10eea-2dc3-4be9-893b-d2825eaa49b7 DatabaseBackup - USER_DATABASES - blitzout                       0 Source: https://ola.hallengren.com
+14416532-1cf6-4cc5-bb0a-e86257f55511 DatabaseBackup - USER_DATABASES - DIFF                           1 Source: https://ola.hallengren.com
+14416532-1cf6-4cc5-bb0a-e86257f55511 DatabaseBackup - USER_DATABASES - DIFF                           1 Source: https://ola.hallengren.com
+14416532-1cf6-4cc5-bb0a-e86257f55511 DatabaseBackup - USER_DATABASES - DIFF                           1 Source: https://ola.hallengren.com
+6056e23f-4c97-44af-af55-48df3f18db01 DatabaseBackup - USER_DATABASES - FULL                           1 Source: https://ola.hallengren.com
+befa0997-82fb-4f92-8b68-24caf26b912e DatabaseBackup - USER_DATABASES - LOG                            1 Source: https://ola.hallengren.com
+befa0997-82fb-4f92-8b68-24caf26b912e DatabaseBackup - USER_DATABASES - LOG                            1 Source: https://ola.hallengren.com
+befa0997-82fb-4f92-8b68-24caf26b912e DatabaseBackup - USER_DATABASES - LOG                            1 Source: https://ola.hallengren.com
+5b7191a7-7622-4685-ba2e-d7fdbd49aedc DatabaseBackup - USER_DATABASES - qc_core                        0 Source: https://ola.hallengren.com
+032e21c2-831f-437d-8936-3029e2eab69e DatabaseIntegrityCheck - SYSTEM_DATABASES                        1 Source: https://ola.hallengren.com
+f0c794be-6272-47a7-b138-d80410febda3 DatabaseIntegrityCheck - USER_DATABASES                          1 Source: https://ola.hallengren.com
+51d42ac6-0d39-464b-a49c-dc4e041afaa7 Distribution clean up: distribution                              1 Removes replicated transactions from the dist...
+5cd41159-19d2-4ecf-b463-e119f2eb868c Expired subscription clean up                                    1 Detects and removes expired subscriptions fro...
+b930578b-a4e4-4920-823e-8c8f227a2bed IndexOptimize - USER_DATABASES                                   1 Source: https://ola.hallengren.com
+5fa403e0-08ba-4aab-87c6-8babdb581b46 Monitor and sync replication agent jobs                          1 Sync replication agent jobs and their enabled...
+de3be6c6-93e9-4731-8dc2-ed2ace090cca Output File Cleanup                                              1 Source: https://ola.hallengren.com
+5cc91727-5fb1-478d-a1d1-4779aa7263f8 PLX-SQLPROD\QCPROD-qc_core-1                                     1 No description available.
+4b4c530e-64f5-4c88-9aac-456c08cc8835 PLX-SQLPROD\QCPROD-qc_core-qcprod-qc_core-1                      1 No description available.
+55a89436-3505-4d95-8f2d-e25a89487be8 PLX-SQLPROD\QCPROD-qc_history-2                                  1 No description available.
+c31d025c-b961-4607-a4c4-de3173f879fb PLX-SQLPROD\QCPROD-qc_history-qcprod-qc_history-2                1 No description available.
+eacbb324-026e-4992-84bf-7ce26ce3aabd PLX-SQLPROD\QCPROD-qc_tpm-3                                      1 No description available.
+fc5f0cd5-21f3-44fb-9fe5-84ddf449dc94 PLX-SQLPROD\QCPROD-qc_tpm-qcprod-qc_tpm-3                        1 No description available.
+4ad55922-2766-4abe-be5b-241e93754e56 Reinitialize subscriptions having data validation failures       1 Reinitializes all subscriptions that have dat...
+dbfc6462-4cb9-428a-bbe4-a85fceba6d94 Replication agents checkup                                       1 Detects replication agents that are not loggi...
+3a10ad28-49c0-483e-b5d3-591df12a6c12 Replication monitoring refresher for distribution.               0 Replication monitoring refresher for distribu...
+4ce3e396-69d9-4676-a68b-cad06b648778 sp_delete_backuphistory                                          1 Source: https://ola.hallengren.com
+a7610cdf-1c76-47a5-9a4f-8b5d87810a61 sp_purge_jobhistory                                              1 Source: https://ola.hallengren.com
+860ce417-9afe-4b5a-bf34-ba815db12900 SQL Maintenance v2                                               1 No description available.
+a162cf4d-8eed-485c-8b2c-d9791ecfde82 SSIS Server Maintenance Job                                      1 Runs every day. The job removes operation rec...
+31b8f4bf-e112-4115-9fc3-b7f20ca57819 syspolicy_purge_history                                          1 No description available.
+1e4be6ea-79d5-49e4-aa1d-992f08a2b2b4 test                                                             1 No description available.
+9b053431-37ae-409c-84f3-6283057ccf51 z_bind-835_force-out-oneoff                                      0 No description available.
+83e71a22-7501-45c3-9709-d4e507c8679e z_cody_temp                                                      1 No description available.
+2e585cd8-a22c-4a27-90df-bb495126e670 z_DatabaseBackup - USER_DATABASES - qc_core-835                  0 Source: https://ola.hallengren.com
 
 
 
- Install-Package : Unable to find package source 'NuGet'. Use Get-PackageSource to see all available package sources.
-At line:1 char:1
-+ Install-Package -Name Microsoft.SqlServer.SqlManagementObjects -Sourc ...
-+ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-    + CategoryInfo          : ObjectNotFound: (Microsoft.Power....InstallPackage:InstallPackage) [Install-Package], Exception
-    + FullyQualifiedErrorId : SourceNotFound,Microsoft.PowerShell.PackageManagement.Cmdlets.InstallPackage 
-
-
-
-
-
-
-     Write-Host "`nQuery completed successfully!" -ForegroundColor Green
-    
-} catch {
-    Write-Error "Failed to query SQL Server jobs: $($_.Exception.Message)"
-    Write-Host "Make sure you have:" -ForegroundColor Red
-    Write-Host "1. Access to the SQL Server instance: $ServerInstance" -ForegroundColor Red
-    Write-Host "2. Appropriate permissions to read msdb database" -ForegroundColor Red
-    Write-Host "3. SQL Server is running and accessible" -ForegroundColor Red
-}
-Write-Host "`nUsage Examples:" -ForegroundColor Cyan
-Write-Host ".\Get-SqlServerJobs.ps1                                    # Basic job list for target databases"
-Write-Host ".\Get-SqlServerJobs.ps1 -Detailed                          # Detailed job information with steps"
-Write-Host ".\Get-SqlServerJobs.ps1 -ShowAllJobs                       # Show ALL jobs (not filtered by database)"
-Write-Host ".\Get-SqlServerJobs.ps1 -TargetDatabases @('ase','qc_core') # Custom database list"
-Write-Host ".\Get-SqlServerJobs.ps1 -ServerInstance 'OtherServer\Instance'  # Different server" : Failed to query SQL Server jobs: Exception calling "Fill" with "1" argument(s): "Invalid 
-column name 'next_run_date'.
-Invalid column name 'next_run_date'.
-Invalid column name 'next_run_time'."
-    + CategoryInfo          : NotSpecified: (:) [Write-Error], WriteErrorException
-    + FullyQualifiedErrorId : Microsoft.PowerShell.Commands.WriteErrorException
- 
-Make sure you have:
-1. Access to the SQL Server instance: PLX-SQLPERF\QCPERF
-2. Appropriate permissions to read msdb database
-3. SQL Server is running and accessible
+Query completed successfully!
 
 Usage Examples:
 .\Get-SqlServerJobs.ps1                                    # Basic job list for target databases
 .\Get-SqlServerJobs.ps1 -Detailed                          # Detailed job information with steps
 .\Get-SqlServerJobs.ps1 -ShowAllJobs                       # Show ALL jobs (not filtered by database)
 .\Get-SqlServerJobs.ps1 -TargetDatabases @('ase','qc_core') # Custom database list
-.\Get-SqlServerJobs.ps1 -ServerInstance 'OtherServer\Instance'  # Different server 
-
+.\Get-SqlServerJobs.ps1 -ServerInstance 'OtherServer\Instance'  # Different server
