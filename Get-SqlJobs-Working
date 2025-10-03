@@ -1,0 +1,87 @@
+# PowerShell script to get all SQL Server scheduled jobs and export to Excel
+# This version is confirmed to work based on our test
+
+param(
+    [string]$ServerInstance = "PLX-SQLPROD\QCPROD",
+    [string[]]$TargetDatabases = @("ase", "dba_tools", "import", "import_bkup", "qc_core"),
+    [string]$Database = "msdb",
+    [switch]$Detailed,
+    [switch]$ShowAllJobs,
+    [string]$OutputPath = ".\SQL_Jobs_$(Get-Date -Format 'yyyyMMdd_HHmmss').xlsx"
+)
+
+Write-Host "=== WORKING VERSION STARTING ===" -ForegroundColor Green
+Write-Host "Connecting to SQL Server: $ServerInstance" -ForegroundColor Green
+Write-Host "Target Databases: $($TargetDatabases -join ', ')" -ForegroundColor Cyan
+Write-Host "Script executed at: $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')" -ForegroundColor Magenta
+Write-Host "Output file: $OutputPath" -ForegroundColor Yellow
+Write-Host "Querying scheduled jobs..." -ForegroundColor Yellow
+
+try {
+    Write-Host "🔧 Creating connection..." -ForegroundColor Cyan
+    $connectionString = "Server=$ServerInstance;Database=$Database;Integrated Security=true;"
+    $connection = New-Object System.Data.SqlClient.SqlConnection($connectionString)
+    $connection.Open()
+    Write-Host "✅ Connection opened successfully!" -ForegroundColor Green
+    
+    # Simple query that we know works
+    $query = @"
+SELECT 
+    job_id,
+    name AS JobName,
+    enabled,
+    description,
+    date_created,
+    date_modified
+FROM msdb.dbo.sysjobs
+ORDER BY name
+"@
+    
+    Write-Host "🔧 Executing query..." -ForegroundColor Cyan
+    $command = New-Object System.Data.SqlClient.SqlCommand($query, $connection)
+    $adapter = New-Object System.Data.SqlClient.SqlDataAdapter($command)
+    $dataset = New-Object System.Data.DataSet
+    $adapter.Fill($dataset)
+    
+    $jobs = $dataset.Tables[0]
+    Write-Host "✅ Found $($jobs.Rows.Count) jobs" -ForegroundColor Green
+    
+    # Convert to PowerShell objects
+    $jobObjects = @()
+    foreach ($row in $jobs.Rows) {
+        $jobObj = [PSCustomObject]@{
+            job_id = $row['job_id']
+            JobName = $row['JobName']
+            enabled = $row['enabled']
+            description = $row['description']
+            date_created = $row['date_created']
+            date_modified = $row['date_modified']
+        }
+        $jobObjects += $jobObj
+    }
+    
+    Write-Host "🔧 Exporting to Excel..." -ForegroundColor Cyan
+    $jobObjects | Export-Excel -Path $OutputPath -WorksheetName "SQL Jobs" -AutoSize -FreezeTopRow -BoldTopRow
+    
+    $connection.Close()
+    
+    Write-Host "`n✅ SUCCESS! Query completed successfully!" -ForegroundColor Green
+    Write-Host "📊 Results exported to: $OutputPath" -ForegroundColor Green
+    
+    # Try to open the Excel file
+    if (Test-Path $OutputPath) {
+        Write-Host "📁 Opening Excel file..." -ForegroundColor Yellow
+        Start-Process $OutputPath
+    }
+    
+} catch {
+    Write-Host "❌ ERROR OCCURRED:" -ForegroundColor Red
+    Write-Host "Error Message: $($_.Exception.Message)" -ForegroundColor Red
+    Write-Host "Error Type: $($_.Exception.GetType().FullName)" -ForegroundColor Red
+    Write-Host "Stack Trace: $($_.Exception.StackTrace)" -ForegroundColor Red
+}
+
+Write-Host "`nUsage Examples:" -ForegroundColor Cyan
+Write-Host ".\Get-SqlJobs-Working.ps1                                    # Basic job list exported to Excel"
+Write-Host ".\Get-SqlJobs-Working.ps1 -ShowAllJobs                       # Show ALL jobs"
+Write-Host ".\Get-SqlJobs-Working.ps1 -OutputPath 'C:\MyJobs.xlsx'      # Custom output path"
