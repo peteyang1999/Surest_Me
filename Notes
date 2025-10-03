@@ -1,3 +1,9 @@
+PS C:\Users\peter.sengkhamee\Documents> .\Get-SqlServerJobs3.ps1 -ShowAllJobs
+Connecting to SQL Server: PLX-SQLPROD\QCPROD
+Target Databases: ase, dba_tools, import, import_bkup, qc_core
+Script executed at: 2025-10-03 18:38:56
+Querying scheduled jobs...
+SQL Server PowerShell module not found. Using .NET SQL connection...
 C:\Users\peter.sengkhamee\Documents\Get-SqlServerJobs3.ps1 : Failed to query SQL Server jobs: Exception calling "Fill"
 with "1" argument(s): "ORDER BY items must appear in the select list if SELECT DISTINCT is specified."
 At line:1 char:1
@@ -10,3 +16,11 @@ Make sure you have:
 1. Access to the SQL Server instance: PLX-SQLPROD\QCPROD
 2. Appropriate permissions to read msdb database
 3. SQL Server is running and accessible
+
+Usage Examples:
+.\Get-SqlServerJobs-Improved.ps1                                    # Basic job list for target databases
+.\Get-SqlServerJobs-Improved.ps1 -Detailed                          # Detailed job information with steps
+.\Get-SqlServerJobs-Improved.ps1 -ShowAllJobs                       # Show ALL jobs (not filtered by database)
+.\Get-SqlServerJobs-Improved.ps1 -TargetDatabases @('ase','qc_core') # Custom database list
+.\Get-SqlServerJobs-Improved.ps1 -ServerInstance 'OtherServer\Instance'  # Different server
+PS C:\Users\peter.sengkhamee\Documents>
