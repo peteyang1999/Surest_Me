@@ -1,0 +1,434 @@
+# PowerShell script to get all SQL Server scheduled jobs
+# Target Server: PLX-SQLPERF\QCPERF
+
+param(
+    [string]$ServerInstance = "PLX-SQLPROD\QCPROD",
+    [string[]]$TargetDatabases = @("ase", "dba_tools", "import", "import_bkup", "qc_core"),
+    [string]$Database = "msdb",
+    [switch]$Detailed,
+    [switch]$ShowAllJobs
+)
+
+Write-Host "Connecting to SQL Server: $ServerInstance" -ForegroundColor Green
+Write-Host "Target Databases: $($TargetDatabases -join ', ')" -ForegroundColor Cyan
+Write-Host "Script executed at: $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')" -ForegroundColor Magenta
+Write-Host "Querying scheduled jobs..." -ForegroundColor Yellow
+
+try {
+    # Method 1: Using SQL Server PowerShell module (if available)
+    if (Get-Module -ListAvailable -Name SqlServer) {
+        Write-Host "Using SQL Server PowerShell module..." -ForegroundColor Cyan
+        
+        Import-Module SqlServer -Force
+        
+        # Build database filter for WHERE clause
+        $dbFilter = ""
+        if (-not $ShowAllJobs) {
+            $dbList = $TargetDatabases -join "','"
+            $dbFilter = "AND (js.database_name IN ('$dbList') OR js.database_name IS NULL OR js.database_name = '')"
+        }
+
+        if ($Detailed) {
+            # Get detailed job information with database context and schedule info
+            $jobs = Invoke-Sqlcmd -ServerInstance $ServerInstance -Database $Database -Query @"
+SELECT DISTINCT
+    j.job_id,
+    j.name AS JobName,
+    j.enabled,
+    j.description,
+    j.date_created,
+    j.date_modified,
+    j.version_number,
+    j.start_step_id,
+    j.category_id,
+    c.name AS CategoryName,
+    j.owner_sid,
+    j.notify_level_eventlog,
+    j.notify_level_email,
+    j.notify_level_netsend,
+    j.notify_level_page,
+    j.notify_email_operator_id,
+    j.notify_netsend_operator_id,
+    j.notify_page_operator_id,
+    j.delete_level,
+    j.originating_server_id,
+    j.master_server_id,
+    STUFF((
+        SELECT DISTINCT ', ' + ISNULL(js2.database_name, 'N/A')
+        FROM msdb.dbo.sysjobsteps js2
+        WHERE js2.job_id = j.job_id
+        FOR XML PATH('')
+    ), 1, 2, '') AS TargetDatabases,
+    CASE 
+        WHEN s.schedule_id IS NULL THEN 'No Schedule'
+        ELSE s.name
+    END AS ScheduleName,
+    CASE 
+        WHEN s.enabled = 1 THEN 'Enabled'
+        WHEN s.enabled = 0 THEN 'Disabled'
+        ELSE 'No Schedule'
+    END AS ScheduleStatus,
+    CASE 
+        WHEN s.freq_type = 1 THEN 'One time only'
+        WHEN s.freq_type = 4 THEN 'Daily'
+        WHEN s.freq_type = 8 THEN 'Weekly'
+        WHEN s.freq_type = 16 THEN 'Monthly'
+        WHEN s.freq_type = 32 THEN 'Monthly relative'
+        WHEN s.freq_type = 64 THEN 'When SQL Server Agent starts'
+        WHEN s.freq_type = 128 THEN 'When computer is idle'
+        ELSE 'Unknown'
+    END AS Frequency,
+    CASE 
+        WHEN s.freq_type IN (4,8,16,32) THEN 
+            CASE s.freq_interval
+                WHEN 1 THEN 'Sunday'
+                WHEN 2 THEN 'Monday'
+                WHEN 3 THEN 'Tuesday'
+                WHEN 4 THEN 'Wednesday'
+                WHEN 5 THEN 'Thursday'
+                WHEN 6 THEN 'Friday'
+                WHEN 7 THEN 'Saturday'
+                WHEN 8 THEN 'Day'
+                WHEN 9 THEN 'Weekdays'
+                WHEN 10 THEN 'Weekend days'
+                ELSE CAST(s.freq_interval AS VARCHAR(10))
+            END
+        ELSE 'N/A'
+    END AS FrequencyInterval,
+    CASE 
+        WHEN s.freq_subday_type = 1 THEN 'At the specified time'
+        WHEN s.freq_subday_type = 2 THEN 'Seconds'
+        WHEN s.freq_subday_type = 4 THEN 'Minutes'
+        WHEN s.freq_subday_type = 8 THEN 'Hours'
+        ELSE 'N/A'
+    END AS SubdayType,
+    CASE 
+        WHEN s.freq_subday_type = 1 THEN 
+            STUFF(STUFF(RIGHT('000000' + CAST(s.active_start_time AS VARCHAR(6)), 6), 3, 0, ':'), 6, 0, ':')
+        ELSE CAST(s.freq_subday_interval AS VARCHAR(10))
+    END AS TimeOrInterval,
+    CASE 
+        WHEN jsched.next_run_date = 0 THEN 'Never'
+        ELSE CONVERT(VARCHAR(10), CONVERT(DATETIME, CAST(jsched.next_run_date AS VARCHAR(8)), 112), 120) + ' ' +
+             STUFF(STUFF(RIGHT('000000' + CAST(jsched.next_run_time AS VARCHAR(6)), 6), 3, 0, ':'), 6, 0, ':')
+    END AS NextRunTime
+FROM msdb.dbo.sysjobs j
+LEFT JOIN msdb.dbo.syscategories c ON j.category_id = c.category_id
+LEFT JOIN msdb.dbo.sysjobsteps js ON j.job_id = js.job_id
+LEFT JOIN msdb.dbo.sysjobschedules jsched ON j.job_id = jsched.job_id
+LEFT JOIN msdb.dbo.sysschedules s ON jsched.schedule_id = s.schedule_id
+WHERE 1=1 $dbFilter
+ORDER BY j.name
+"@
+        } else {
+            # Get basic job information with database context and schedule info
+            $jobs = Invoke-Sqlcmd -ServerInstance $ServerInstance -Database $Database -Query @"
+SELECT DISTINCT
+    j.job_id,
+    j.name AS JobName,
+    j.enabled,
+    j.description,
+    j.date_created,
+    j.date_modified,
+    c.name AS CategoryName,
+    STUFF((
+        SELECT DISTINCT ', ' + ISNULL(js2.database_name, 'N/A')
+        FROM msdb.dbo.sysjobsteps js2
+        WHERE js2.job_id = j.job_id
+        FOR XML PATH('')
+    ), 1, 2, '') AS TargetDatabases,
+    CASE 
+        WHEN s.schedule_id IS NULL THEN 'No Schedule'
+        ELSE s.name
+    END AS ScheduleName,
+    CASE 
+        WHEN s.enabled = 1 THEN 'Enabled'
+        WHEN s.enabled = 0 THEN 'Disabled'
+        ELSE 'No Schedule'
+    END AS ScheduleStatus,
+    CASE 
+        WHEN s.freq_type = 1 THEN 'One time only'
+        WHEN s.freq_type = 4 THEN 'Daily'
+        WHEN s.freq_type = 8 THEN 'Weekly'
+        WHEN s.freq_type = 16 THEN 'Monthly'
+        WHEN s.freq_type = 32 THEN 'Monthly relative'
+        WHEN s.freq_type = 64 THEN 'When SQL Server Agent starts'
+        WHEN s.freq_type = 128 THEN 'When computer is idle'
+        ELSE 'Unknown'
+    END AS Frequency,
+    CASE 
+        WHEN s.freq_subday_type = 1 THEN 
+            STUFF(STUFF(RIGHT('000000' + CAST(s.active_start_time AS VARCHAR(6)), 6), 3, 0, ':'), 6, 0, ':')
+        ELSE CAST(s.freq_subday_interval AS VARCHAR(10))
+    END AS TimeOrInterval,
+    CASE 
+        WHEN jsched.next_run_date = 0 THEN 'Never'
+        ELSE CONVERT(VARCHAR(10), CONVERT(DATETIME, CAST(jsched.next_run_date AS VARCHAR(8)), 112), 120) + ' ' +
+             STUFF(STUFF(RIGHT('000000' + CAST(jsched.next_run_time AS VARCHAR(6)), 6), 3, 0, ':'), 6, 0, ':')
+    END AS NextRunTime
+FROM msdb.dbo.sysjobs j
+LEFT JOIN msdb.dbo.syscategories c ON j.category_id = c.category_id
+LEFT JOIN msdb.dbo.sysjobsteps js ON j.job_id = js.job_id
+LEFT JOIN msdb.dbo.sysjobschedules jsched ON j.job_id = jsched.job_id
+LEFT JOIN msdb.dbo.sysschedules s ON jsched.schedule_id = s.schedule_id
+WHERE 1=1 $dbFilter
+ORDER BY j.name
+"@
+        }
+        
+        $jobs | Format-Table -AutoSize
+        
+        # Also get job steps if detailed
+        if ($Detailed) {
+            Write-Host "`nJob Steps:" -ForegroundColor Cyan
+            $jobSteps = Invoke-Sqlcmd -ServerInstance $ServerInstance -Database $Database -Query @"
+SELECT 
+    js.job_id,
+    j.name AS JobName,
+    js.step_id,
+    js.step_name,
+    js.subsystem,
+    js.command,
+    js.database_name,
+    js.database_user_name,
+    js.retry_attempts,
+    js.retry_interval,
+    js.on_success_action,
+    js.on_fail_action,
+    js.last_run_outcome,
+    js.last_run_date,
+    js.last_run_time,
+    js.last_run_duration
+FROM msdb.dbo.sysjobsteps js
+INNER JOIN msdb.dbo.sysjobs j ON js.job_id = j.job_id
+WHERE 1=1 $dbFilter
+ORDER BY j.name, js.step_id
+"@
+            $jobSteps | Format-Table -AutoSize
+        }
+        
+    } else {
+        Write-Host "SQL Server PowerShell module not found. Using .NET SQL connection..." -ForegroundColor Yellow
+        
+        # Method 2: Using .NET SQL connection (no additional modules required)
+        $connectionString = "Server=$ServerInstance;Database=$Database;Integrated Security=true;"
+        
+        $connection = New-Object System.Data.SqlClient.SqlConnection($connectionString)
+        $connection.Open()
+        
+        # Build database filter for WHERE clause
+        $dbFilter = ""
+        if (-not $ShowAllJobs) {
+            $dbList = $TargetDatabases -join "','"
+            $dbFilter = "AND (js.database_name IN ('$dbList') OR js.database_name IS NULL OR js.database_name = '')"
+        }
+        
+        if ($Detailed) {
+            $query = @"
+SELECT DISTINCT
+    j.job_id,
+    j.name AS JobName,
+    j.enabled,
+    j.description,
+    j.date_created,
+    j.date_modified,
+    j.version_number,
+    j.start_step_id,
+    j.category_id,
+    c.name AS CategoryName,
+    j.owner_sid,
+    j.notify_level_eventlog,
+    j.notify_level_email,
+    j.notify_level_netsend,
+    j.notify_level_page,
+    j.notify_email_operator_id,
+    j.notify_netsend_operator_id,
+    j.notify_page_operator_id,
+    j.delete_level,
+    j.originating_server_id,
+    j.master_server_id,
+    STUFF((
+        SELECT DISTINCT ', ' + ISNULL(js2.database_name, 'N/A')
+        FROM msdb.dbo.sysjobsteps js2
+        WHERE js2.job_id = j.job_id
+        FOR XML PATH('')
+    ), 1, 2, '') AS TargetDatabases,
+    CASE 
+        WHEN s.schedule_id IS NULL THEN 'No Schedule'
+        ELSE s.name
+    END AS ScheduleName,
+    CASE 
+        WHEN s.enabled = 1 THEN 'Enabled'
+        WHEN s.enabled = 0 THEN 'Disabled'
+        ELSE 'No Schedule'
+    END AS ScheduleStatus,
+    CASE 
+        WHEN s.freq_type = 1 THEN 'One time only'
+        WHEN s.freq_type = 4 THEN 'Daily'
+        WHEN s.freq_type = 8 THEN 'Weekly'
+        WHEN s.freq_type = 16 THEN 'Monthly'
+        WHEN s.freq_type = 32 THEN 'Monthly relative'
+        WHEN s.freq_type = 64 THEN 'When SQL Server Agent starts'
+        WHEN s.freq_type = 128 THEN 'When computer is idle'
+        ELSE 'Unknown'
+    END AS Frequency,
+    CASE 
+        WHEN s.freq_type IN (4,8,16,32) THEN 
+            CASE s.freq_interval
+                WHEN 1 THEN 'Sunday'
+                WHEN 2 THEN 'Monday'
+                WHEN 3 THEN 'Tuesday'
+                WHEN 4 THEN 'Wednesday'
+                WHEN 5 THEN 'Thursday'
+                WHEN 6 THEN 'Friday'
+                WHEN 7 THEN 'Saturday'
+                WHEN 8 THEN 'Day'
+                WHEN 9 THEN 'Weekdays'
+                WHEN 10 THEN 'Weekend days'
+                ELSE CAST(s.freq_interval AS VARCHAR(10))
+            END
+        ELSE 'N/A'
+    END AS FrequencyInterval,
+    CASE 
+        WHEN s.freq_subday_type = 1 THEN 'At the specified time'
+        WHEN s.freq_subday_type = 2 THEN 'Seconds'
+        WHEN s.freq_subday_type = 4 THEN 'Minutes'
+        WHEN s.freq_subday_type = 8 THEN 'Hours'
+        ELSE 'N/A'
+    END AS SubdayType,
+    CASE 
+        WHEN s.freq_subday_type = 1 THEN 
+            STUFF(STUFF(RIGHT('000000' + CAST(s.active_start_time AS VARCHAR(6)), 6), 3, 0, ':'), 6, 0, ':')
+        ELSE CAST(s.freq_subday_interval AS VARCHAR(10))
+    END AS TimeOrInterval,
+    CASE 
+        WHEN jsched.next_run_date = 0 THEN 'Never'
+        ELSE CONVERT(VARCHAR(10), CONVERT(DATETIME, CAST(jsched.next_run_date AS VARCHAR(8)), 112), 120) + ' ' +
+             STUFF(STUFF(RIGHT('000000' + CAST(jsched.next_run_time AS VARCHAR(6)), 6), 3, 0, ':'), 6, 0, ':')
+    END AS NextRunTime
+FROM msdb.dbo.sysjobs j
+LEFT JOIN msdb.dbo.syscategories c ON j.category_id = c.category_id
+LEFT JOIN msdb.dbo.sysjobsteps js ON j.job_id = js.job_id
+LEFT JOIN msdb.dbo.sysjobschedules jsched ON j.job_id = jsched.job_id
+LEFT JOIN msdb.dbo.sysschedules s ON jsched.schedule_id = s.schedule_id
+WHERE 1=1 $dbFilter
+ORDER BY j.name
+"@
+        } else {
+            $query = @"
+SELECT DISTINCT
+    j.job_id,
+    j.name AS JobName,
+    j.enabled,
+    j.description,
+    j.date_created,
+    j.date_modified,
+    c.name AS CategoryName,
+    STUFF((
+        SELECT DISTINCT ', ' + ISNULL(js2.database_name, 'N/A')
+        FROM msdb.dbo.sysjobsteps js2
+        WHERE js2.job_id = j.job_id
+        FOR XML PATH('')
+    ), 1, 2, '') AS TargetDatabases,
+    CASE 
+        WHEN s.schedule_id IS NULL THEN 'No Schedule'
+        ELSE s.name
+    END AS ScheduleName,
+    CASE 
+        WHEN s.enabled = 1 THEN 'Enabled'
+        WHEN s.enabled = 0 THEN 'Disabled'
+        ELSE 'No Schedule'
+    END AS ScheduleStatus,
+    CASE 
+        WHEN s.freq_type = 1 THEN 'One time only'
+        WHEN s.freq_type = 4 THEN 'Daily'
+        WHEN s.freq_type = 8 THEN 'Weekly'
+        WHEN s.freq_type = 16 THEN 'Monthly'
+        WHEN s.freq_type = 32 THEN 'Monthly relative'
+        WHEN s.freq_type = 64 THEN 'When SQL Server Agent starts'
+        WHEN s.freq_type = 128 THEN 'When computer is idle'
+        ELSE 'Unknown'
+    END AS Frequency,
+    CASE 
+        WHEN s.freq_subday_type = 1 THEN 
+            STUFF(STUFF(RIGHT('000000' + CAST(s.active_start_time AS VARCHAR(6)), 6), 3, 0, ':'), 6, 0, ':')
+        ELSE CAST(s.freq_subday_interval AS VARCHAR(10))
+    END AS TimeOrInterval,
+    CASE 
+        WHEN jsched.next_run_date = 0 THEN 'Never'
+        ELSE CONVERT(VARCHAR(10), CONVERT(DATETIME, CAST(jsched.next_run_date AS VARCHAR(8)), 112), 120) + ' ' +
+             STUFF(STUFF(RIGHT('000000' + CAST(jsched.next_run_time AS VARCHAR(6)), 6), 3, 0, ':'), 6, 0, ':')
+    END AS NextRunTime
+FROM msdb.dbo.sysjobs j
+LEFT JOIN msdb.dbo.syscategories c ON j.category_id = c.category_id
+LEFT JOIN msdb.dbo.sysjobsteps js ON j.job_id = js.job_id
+LEFT JOIN msdb.dbo.sysjobschedules jsched ON j.job_id = jsched.job_id
+LEFT JOIN msdb.dbo.sysschedules s ON jsched.schedule_id = s.schedule_id
+WHERE 1=1 $dbFilter
+ORDER BY j.name
+"@
+        }
+        
+        $command = New-Object System.Data.SqlClient.SqlCommand($query, $connection)
+        $adapter = New-Object System.Data.SqlClient.SqlDataAdapter($command)
+        $dataset = New-Object System.Data.DataSet
+        $adapter.Fill($dataset)
+        
+        $jobs = $dataset.Tables[0]
+        $jobs | Format-Table -AutoSize
+        
+        # Also get job steps if detailed
+        if ($Detailed) {
+            Write-Host "`nJob Steps:" -ForegroundColor Cyan
+            $stepsQuery = @"
+SELECT 
+    js.job_id,
+    j.name AS JobName,
+    js.step_id,
+    js.step_name,
+    js.subsystem,
+    js.command,
+    js.database_name,
+    js.database_user_name,
+    js.retry_attempts,
+    js.retry_interval,
+    js.on_success_action,
+    js.on_fail_action,
+    js.last_run_outcome,
+    js.last_run_date,
+    js.last_run_time,
+    js.last_run_duration
+FROM msdb.dbo.sysjobsteps js
+INNER JOIN msdb.dbo.sysjobs j ON js.job_id = j.job_id
+WHERE 1=1 $dbFilter
+ORDER BY j.name, js.step_id
+"@
+            
+            $stepsCommand = New-Object System.Data.SqlClient.SqlCommand($stepsQuery, $connection)
+            $stepsAdapter = New-Object System.Data.SqlClient.SqlDataAdapter($stepsCommand)
+            $stepsDataset = New-Object System.Data.DataSet
+            $stepsAdapter.Fill($stepsDataset)
+            
+            $jobSteps = $stepsDataset.Tables[0]
+            $jobSteps | Format-Table -AutoSize
+        }
+        
+        $connection.Close()
+    }
+    
+    Write-Host "`nQuery completed successfully!" -ForegroundColor Green
+    
+} catch {
+    Write-Error "Failed to query SQL Server jobs: $($_.Exception.Message)"
+    Write-Host "Make sure you have:" -ForegroundColor Red
+    Write-Host "1. Access to the SQL Server instance: $ServerInstance" -ForegroundColor Red
+    Write-Host "2. Appropriate permissions to read msdb database" -ForegroundColor Red
+    Write-Host "3. SQL Server is running and accessible" -ForegroundColor Red
+}
+
+Write-Host "`nUsage Examples:" -ForegroundColor Cyan
+Write-Host ".\Get-SqlServerJobs.ps1                                    # Basic job list for target databases"
+Write-Host ".\Get-SqlServerJobs.ps1 -Detailed                          # Detailed job information with steps"
+Write-Host ".\Get-SqlServerJobs.ps1 -ShowAllJobs                       # Show ALL jobs (not filtered by database)"
+Write-Host ".\Get-SqlServerJobs.ps1 -TargetDatabases @('ase','qc_core') # Custom database list"
+Write-Host ".\Get-SqlServerJobs.ps1 -ServerInstance 'OtherServer\Instance'  # Different server"
