@@ -1,6 +1,6 @@
 # PowerShell script to get all SQL Server scheduled jobs with improved date display
 # Target Server: PLX-SQLPERF\QCPERF
-# Latest Version: 1.0.0
+# Latest Version: 2.0.0
 param(
     [string]$ServerInstance = "PLX-SQLPROD\QCPROD",
     [string[]]$TargetDatabases = @("ase", "dba_tools", "import", "import_bkup", "qc_core"),
