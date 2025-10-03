@@ -1,4 +1,4 @@
-# PowerShell script to get all SQL Server scheduled jobs
+# PowerShell script to get all SQL Server scheduled jobs with improved date display
 # Target Server: PLX-SQLPERF\QCPERF
 
 param(
@@ -29,15 +29,15 @@ try {
         }
 
         if ($Detailed) {
-            # Get detailed job information with database context and schedule info
+            # Get detailed job information with properly formatted dates
             $jobs = Invoke-Sqlcmd -ServerInstance $ServerInstance -Database $Database -Query @"
 SELECT DISTINCT
     j.job_id,
     j.name AS JobName,
     j.enabled,
     j.description,
-    j.date_created,
-    j.date_modified,
+    CONVERT(VARCHAR(19), j.date_created, 120) AS DateCreated,
+    CONVERT(VARCHAR(19), j.date_modified, 120) AS DateModified,
     j.version_number,
     j.start_step_id,
     j.category_id,
@@ -118,18 +118,18 @@ LEFT JOIN msdb.dbo.sysjobsteps js ON j.job_id = js.job_id
 LEFT JOIN msdb.dbo.sysjobschedules jsched ON j.job_id = jsched.job_id
 LEFT JOIN msdb.dbo.sysschedules s ON jsched.schedule_id = s.schedule_id
 WHERE 1=1 $dbFilter
-ORDER BY j.name
+ORDER BY j.date_modified DESC, j.name
 "@
         } else {
-            # Get basic job information with database context and schedule info
+            # Get basic job information with properly formatted dates
             $jobs = Invoke-Sqlcmd -ServerInstance $ServerInstance -Database $Database -Query @"
 SELECT DISTINCT
     j.job_id,
     j.name AS JobName,
     j.enabled,
     j.description,
-    j.date_created,
-    j.date_modified,
+    CONVERT(VARCHAR(19), j.date_created, 120) AS DateCreated,
+    CONVERT(VARCHAR(19), j.date_modified, 120) AS DateModified,
     c.name AS CategoryName,
     STUFF((
         SELECT DISTINCT ', ' + ISNULL(js2.database_name, 'N/A')
@@ -172,11 +172,13 @@ LEFT JOIN msdb.dbo.sysjobsteps js ON j.job_id = js.job_id
 LEFT JOIN msdb.dbo.sysjobschedules jsched ON j.job_id = jsched.job_id
 LEFT JOIN msdb.dbo.sysschedules s ON jsched.schedule_id = s.schedule_id
 WHERE 1=1 $dbFilter
-ORDER BY j.name
+ORDER BY j.date_modified DESC, j.name
 "@
         }
         
-        $jobs | Format-Table -AutoSize
+        # Display jobs with better formatting
+        Write-Host "`nSQL Server Jobs (ordered by last modified date):" -ForegroundColor Green
+        $jobs | Format-Table -AutoSize -Wrap
         
         # Also get job steps if detailed
         if ($Detailed) {
@@ -196,15 +198,18 @@ SELECT
     js.on_success_action,
     js.on_fail_action,
     js.last_run_outcome,
-    js.last_run_date,
-    js.last_run_time,
+    CASE 
+        WHEN js.last_run_date = 0 THEN 'Never'
+        ELSE CONVERT(VARCHAR(10), CONVERT(DATETIME, CAST(js.last_run_date AS VARCHAR(8)), 112), 120) + ' ' +
+             STUFF(STUFF(RIGHT('000000' + CAST(js.last_run_time AS VARCHAR(6)), 6), 3, 0, ':'), 6, 0, ':')
+    END AS LastRunTime,
     js.last_run_duration
 FROM msdb.dbo.sysjobsteps js
 INNER JOIN msdb.dbo.sysjobs j ON js.job_id = j.job_id
 WHERE 1=1 $dbFilter
 ORDER BY j.name, js.step_id
 "@
-            $jobSteps | Format-Table -AutoSize
+            $jobSteps | Format-Table -AutoSize -Wrap
         }
         
     } else {
@@ -230,8 +235,8 @@ SELECT DISTINCT
     j.name AS JobName,
     j.enabled,
     j.description,
-    j.date_created,
-    j.date_modified,
+    CONVERT(VARCHAR(19), j.date_created, 120) AS DateCreated,
+    CONVERT(VARCHAR(19), j.date_modified, 120) AS DateModified,
     j.version_number,
     j.start_step_id,
     j.category_id,
@@ -312,7 +317,7 @@ LEFT JOIN msdb.dbo.sysjobsteps js ON j.job_id = js.job_id
 LEFT JOIN msdb.dbo.sysjobschedules jsched ON j.job_id = jsched.job_id
 LEFT JOIN msdb.dbo.sysschedules s ON jsched.schedule_id = s.schedule_id
 WHERE 1=1 $dbFilter
-ORDER BY j.name
+ORDER BY j.date_modified DESC, j.name
 "@
         } else {
             $query = @"
@@ -321,8 +326,8 @@ SELECT DISTINCT
     j.name AS JobName,
     j.enabled,
     j.description,
-    j.date_created,
-    j.date_modified,
+    CONVERT(VARCHAR(19), j.date_created, 120) AS DateCreated,
+    CONVERT(VARCHAR(19), j.date_modified, 120) AS DateModified,
     c.name AS CategoryName,
     STUFF((
         SELECT DISTINCT ', ' + ISNULL(js2.database_name, 'N/A')
@@ -365,7 +370,7 @@ LEFT JOIN msdb.dbo.sysjobsteps js ON j.job_id = js.job_id
 LEFT JOIN msdb.dbo.sysjobschedules jsched ON j.job_id = jsched.job_id
 LEFT JOIN msdb.dbo.sysschedules s ON jsched.schedule_id = s.schedule_id
 WHERE 1=1 $dbFilter
-ORDER BY j.name
+ORDER BY j.date_modified DESC, j.name
 "@
         }
         
@@ -375,7 +380,10 @@ ORDER BY j.name
         $adapter.Fill($dataset)
         
         $jobs = $dataset.Tables[0]
-        $jobs | Format-Table -AutoSize
+        
+        # Display jobs with better formatting
+        Write-Host "`nSQL Server Jobs (ordered by last modified date):" -ForegroundColor Green
+        $jobs | Format-Table -AutoSize -Wrap
         
         # Also get job steps if detailed
         if ($Detailed) {
@@ -395,8 +403,11 @@ SELECT
     js.on_success_action,
     js.on_fail_action,
     js.last_run_outcome,
-    js.last_run_date,
-    js.last_run_time,
+    CASE 
+        WHEN js.last_run_date = 0 THEN 'Never'
+        ELSE CONVERT(VARCHAR(10), CONVERT(DATETIME, CAST(js.last_run_date AS VARCHAR(8)), 112), 120) + ' ' +
+             STUFF(STUFF(RIGHT('000000' + CAST(js.last_run_time AS VARCHAR(6)), 6), 3, 0, ':'), 6, 0, ':')
+    END AS LastRunTime,
     js.last_run_duration
 FROM msdb.dbo.sysjobsteps js
 INNER JOIN msdb.dbo.sysjobs j ON js.job_id = j.job_id
@@ -410,7 +421,7 @@ ORDER BY j.name, js.step_id
             $stepsAdapter.Fill($stepsDataset)
             
             $jobSteps = $stepsDataset.Tables[0]
-            $jobSteps | Format-Table -AutoSize
+            $jobSteps | Format-Table -AutoSize -Wrap
         }
         
         $connection.Close()
@@ -427,8 +438,8 @@ ORDER BY j.name, js.step_id
 }
 
 Write-Host "`nUsage Examples:" -ForegroundColor Cyan
-Write-Host ".\Get-SqlServerJobs.ps1                                    # Basic job list for target databases"
-Write-Host ".\Get-SqlServerJobs.ps1 -Detailed                          # Detailed job information with steps"
-Write-Host ".\Get-SqlServerJobs.ps1 -ShowAllJobs                       # Show ALL jobs (not filtered by database)"
-Write-Host ".\Get-SqlServerJobs.ps1 -TargetDatabases @('ase','qc_core') # Custom database list"
-Write-Host ".\Get-SqlServerJobs.ps1 -ServerInstance 'OtherServer\Instance'  # Different server"
+Write-Host ".\Get-SqlServerJobs-Improved.ps1                                    # Basic job list for target databases"
+Write-Host ".\Get-SqlServerJobs-Improved.ps1 -Detailed                          # Detailed job information with steps"
+Write-Host ".\Get-SqlServerJobs-Improved.ps1 -ShowAllJobs                       # Show ALL jobs (not filtered by database)"
+Write-Host ".\Get-SqlServerJobs-Improved.ps1 -TargetDatabases @('ase','qc_core') # Custom database list"
+Write-Host ".\Get-SqlServerJobs-Improved.ps1 -ServerInstance 'OtherServer\Instance'  # Different server"
