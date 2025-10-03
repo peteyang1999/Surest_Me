@@ -1,0 +1,76 @@
+# Simple test script to debug SQL Server connection
+param(
+    [string]$ServerInstance = "PLX-SQLPROD\QCPROD",
+    [string]$Database = "msdb"
+)
+
+Write-Host "=== TEST SCRIPT STARTING ===" -ForegroundColor Green
+Write-Host "Server: $ServerInstance" -ForegroundColor Yellow
+Write-Host "Database: $Database" -ForegroundColor Yellow
+
+try {
+    Write-Host "🔧 STEP 1: Creating connection string" -ForegroundColor Cyan
+    $connectionString = "Server=$ServerInstance;Database=$Database;Integrated Security=true;"
+    Write-Host "Connection string: $connectionString" -ForegroundColor Gray
+    
+    Write-Host "🔧 STEP 2: Creating connection object" -ForegroundColor Cyan
+    $connection = New-Object System.Data.SqlClient.SqlConnection($connectionString)
+    
+    Write-Host "🔧 STEP 3: Opening connection" -ForegroundColor Cyan
+    $connection.Open()
+    Write-Host "✅ Connection opened successfully!" -ForegroundColor Green
+    
+    Write-Host "🔧 STEP 4: Creating simple query" -ForegroundColor Cyan
+    $query = "SELECT COUNT(*) as JobCount FROM msdb.dbo.sysjobs"
+    Write-Host "Query: $query" -ForegroundColor Gray
+    
+    Write-Host "🔧 STEP 5: Creating command" -ForegroundColor Cyan
+    $command = New-Object System.Data.SqlClient.SqlCommand($query, $connection)
+    
+    Write-Host "🔧 STEP 6: Executing query" -ForegroundColor Cyan
+    $result = $command.ExecuteScalar()
+    Write-Host "✅ Query executed successfully! Found $result jobs" -ForegroundColor Green
+    
+    Write-Host "🔧 STEP 7: Testing the problematic query" -ForegroundColor Cyan
+    $problemQuery = @"
+SELECT 
+    job_id,
+    name AS JobName,
+    enabled,
+    description,
+    date_created,
+    date_modified
+FROM msdb.dbo.sysjobs
+ORDER BY name
+"@
+    
+    Write-Host "Problem query: $problemQuery" -ForegroundColor Gray
+    
+    Write-Host "🔧 STEP 8: Creating command for problem query" -ForegroundColor Cyan
+    $problemCommand = New-Object System.Data.SqlClient.SqlCommand($problemQuery, $connection)
+    
+    Write-Host "🔧 STEP 9: Creating adapter for problem query" -ForegroundColor Cyan
+    $adapter = New-Object System.Data.SqlClient.SqlDataAdapter($problemCommand)
+    
+    Write-Host "🔧 STEP 10: Creating dataset" -ForegroundColor Cyan
+    $dataset = New-Object System.Data.DataSet
+    
+    Write-Host "🔧 STEP 11: About to execute Fill() - this might fail" -ForegroundColor Red
+    $adapter.Fill($dataset)
+    Write-Host "✅ Fill() completed successfully!" -ForegroundColor Green
+    
+    Write-Host "🔧 STEP 12: Getting results" -ForegroundColor Cyan
+    $jobs = $dataset.Tables[0]
+    Write-Host "✅ Found $($jobs.Rows.Count) jobs in results" -ForegroundColor Green
+    
+    $connection.Close()
+    Write-Host "✅ Connection closed" -ForegroundColor Green
+    
+} catch {
+    Write-Host "❌ ERROR OCCURRED:" -ForegroundColor Red
+    Write-Host "Error Message: $($_.Exception.Message)" -ForegroundColor Red
+    Write-Host "Error Type: $($_.Exception.GetType().FullName)" -ForegroundColor Red
+    Write-Host "Stack Trace: $($_.Exception.StackTrace)" -ForegroundColor Red
+}
+
+Write-Host "=== TEST SCRIPT COMPLETED ===" -ForegroundColor Green
