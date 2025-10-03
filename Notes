@@ -1,25 +1,36 @@
- PS C:\Users\peter.sengkhamee> C:\Users\peter.sengkhamee\Documents\Get-SqlServerJobs3.ps1
-Connecting to SQL Server: PLX-SQLPROD\QCPROD
-Target Databases: ase, dba_tools, import, import_bkup, qc_core
-Script executed at: 2025-10-03 18:51:57
-Querying scheduled jobs...
-SQL Server PowerShell module not found. Using .NET SQL connection...
-C:\Users\peter.sengkhamee\Documents\Get-SqlServerJobs3.ps1 : Failed to query SQL Server jobs: Exception 
-calling "Fill" with "1" argument(s): "ORDER BY items must appear in the select list if SELECT DISTINCT is 
-specified."
-    + CategoryInfo          : NotSpecified: (:) [Write-Error], WriteErrorException
-    + FullyQualifiedErrorId : Microsoft.PowerShell.Commands.WriteErrorException,Get-SqlServerJobs3.ps1
- 
-Make sure you have:
-1. Access to the SQL Server instance: PLX-SQLPROD\QCPROD
-2. Appropriate permissions to read msdb database
-3. SQL Server is running and accessible
-
-Usage Examples:
-.\Get-SqlServerJobs-Improved.ps1                                    # Basic job list for target databases
-.\Get-SqlServerJobs-Improved.ps1 -Detailed                          # Detailed job information with steps
-.\Get-SqlServerJobs-Improved.ps1 -ShowAllJobs                       # Show ALL jobs (not filtered by database)
-.\Get-SqlServerJobs-Improved.ps1 -TargetDatabases @('ase','qc_core') # Custom database list
-.\Get-SqlServerJobs-Improved.ps1 -ServerInstance 'OtherServer\Instance'  # Different server
+ PS C:\Users\peter.sengkhamee> C:\Users\peter.sengkhamee\Documents\Test-SqlJobs.ps1
+=== TEST SCRIPT STARTING ===
+Server: PLX-SQLPROD\QCPROD
+Database: msdb
+🔧 STEP 1: Creating connection string
+Connection string: Server=PLX-SQLPROD\QCPROD;Database=msdb;Integrated Security=true;
+🔧 STEP 2: Creating connection object
+🔧 STEP 3: Opening connection
+✅ Connection opened successfully!
+🔧 STEP 4: Creating simple query
+Query: SELECT COUNT(*) as JobCount FROM msdb.dbo.sysjobs
+🔧 STEP 5: Creating command
+🔧 STEP 6: Executing query
+✅ Query executed successfully! Found 61 jobs
+🔧 STEP 7: Testing the problematic query
+Problem query: SELECT 
+    job_id,
+    name AS JobName,
+    enabled,
+    description,
+    date_created,
+    date_modified
+FROM msdb.dbo.sysjobs
+ORDER BY name
+🔧 STEP 8: Creating command for problem query
+🔧 STEP 9: Creating adapter for problem query
+🔧 STEP 10: Creating dataset
+🔧 STEP 11: About to execute Fill() - this might fail
+61
+✅ Fill() completed successfully!
+🔧 STEP 12: Getting results
+✅ Found 61 jobs in results
+✅ Connection closed
+=== TEST SCRIPT COMPLETED ===
 
 PS C:\Users\peter.sengkhamee>  
