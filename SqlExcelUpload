@@ -1,0 +1,293 @@
+-- =============================================
+-- CSV IMPORT FROM c:\user-data\ExcelUploads
+-- =============================================
+-- Author: Generated for Wetland Bank Project
+-- Description: Import CSV data from file path to SQL table
+-- =============================================
+
+-- STEP 1: CONFIGURE YOUR IMPORT
+-- =============================================
+DECLARE @FilePath NVARCHAR(500) = 'c:\user-data\ExcelUploads\YourFileName.csv'  -- UPDATE THIS
+DECLARE @TableName NVARCHAR(128) = 'dbo.YourTableName'  -- UPDATE THIS
+DECLARE @HasHeaderRow BIT = 1  -- Set to 1 if CSV has header row, 0 if not
+DECLARE @FieldDelimiter VARCHAR(10) = ','  -- Usually comma, but could be ';' or '|'
+
+-- =============================================
+-- METHOD 1: BULK INSERT (Recommended - Fastest)
+-- =============================================
+-- Use this method for well-formatted CSV files
+
+BEGIN TRY
+    PRINT 'Starting BULK INSERT from: ' + @FilePath
+    PRINT 'Target table: ' + @TableName
+    PRINT '-------------------------------------------'
+    
+    -- Perform BULK INSERT
+    DECLARE @SQL NVARCHAR(MAX) = '
+    BULK INSERT ' + @TableName + '
+    FROM ''' + @FilePath + '''
+    WITH (
+        FIELDTERMINATOR = ''' + @FieldDelimiter + ''',
+        ROWTERMINATOR = ''\n'',
+        FIRSTROW = ' + CAST(CASE WHEN @HasHeaderRow = 1 THEN 2 ELSE 1 END AS VARCHAR(10)) + ',
+        KEEPNULLS,
+        TABLOCK,
+        CODEPAGE = ''ACP''
+    )'
+    
+    EXEC sp_executesql @SQL
+    
+    PRINT 'SUCCESS: CSV imported successfully'
+    PRINT 'Rows imported: ' + CAST(@@ROWCOUNT AS VARCHAR(10))
+    PRINT '-------------------------------------------'
+    
+END TRY
+BEGIN CATCH
+    PRINT 'ERROR with BULK INSERT: ' + ERROR_MESSAGE()
+    PRINT 'Trying alternative method (OPENROWSET)...'
+    PRINT '-------------------------------------------'
+END CATCH
+
+-- =============================================
+-- METHOD 2: OPENROWSET (Alternative - More Flexible)
+-- =============================================
+-- Use this if BULK INSERT fails or for complex parsing
+
+-- For single column CSV (like claim IDs, account numbers, etc.)
+IF @FieldDelimiter = '' OR @FieldDelimiter IS NULL
+BEGIN
+    -- Single column import using OPENROWSET
+    DECLARE @SQL_OPENROWSET NVARCHAR(MAX) = '
+    INSERT INTO ' + @TableName + '
+    SELECT 
+        LTRIM(RTRIM(value)) AS Value
+    FROM OPENROWSET(BULK ''' + @FilePath + ''', SINGLE_CLOB) AS Contents
+    CROSS APPLY STRING_SPLIT(BulkColumn, CHAR(13) + CHAR(10)) AS Lines
+    WHERE LTRIM(RTRIM(value)) != ''''
+    AND LTRIM(RTRIM(value)) IS NOT NULL'
+    
+    IF @HasHeaderRow = 1
+    BEGIN
+        SET @SQL_OPENROWSET = @SQL_OPENROWSET + '
+    AND LTRIM(RTRIM(value)) NOT IN (SELECT TOP 1 LTRIM(RTRIM(value)) 
+        FROM OPENROWSET(BULK ''' + @FilePath + ''', SINGLE_CLOB) AS C
+        CROSS APPLY STRING_SPLIT(BulkColumn, CHAR(13) + CHAR(10))
+        WHERE value != '''')'
+    END
+    
+    BEGIN TRY
+        EXEC sp_executesql @SQL_OPENROWSET
+        PRINT 'SUCCESS: OPENROWSET method completed'
+        PRINT 'Rows imported: ' + CAST(@@ROWCOUNT AS VARCHAR(10))
+    END TRY
+    BEGIN CATCH
+        PRINT 'ERROR with OPENROWSET: ' + ERROR_MESSAGE()
+    END CATCH
+END
+
+-- =============================================
+-- METHOD 3: Manual Line-by-Line Parsing (Most Robust)
+-- =============================================
+-- Use this for files with inconsistent formatting
+
+/*
+-- Uncomment this section if Methods 1 and 2 fail
+
+DECLARE @FileContent NVARCHAR(MAX)
+DECLARE @CurrentLine NVARCHAR(MAX)
+DECLARE @LineStart INT = 1
+DECLARE @LineEnd INT
+DECLARE @LineBreak VARCHAR(2)
+DECLARE @RowCount INT = 0
+
+-- Get the file content
+SELECT @FileContent = BulkColumn
+FROM OPENROWSET(BULK 'c:\user-data\ExcelUploads\YourFileName.csv', SINGLE_CLOB) AS Contents
+
+-- Detect line break type
+IF CHARINDEX(CHAR(13) + CHAR(10), @FileContent) > 0
+    SET @LineBreak = CHAR(13) + CHAR(10)  -- Windows
+ELSE IF CHARINDEX(CHAR(10), @FileContent) > 0
+    SET @LineBreak = CHAR(10)  -- Unix
+ELSE
+    SET @LineBreak = CHAR(13)  -- Mac
+
+PRINT 'Detected line break: ' + CASE @LineBreak
+    WHEN CHAR(13) + CHAR(10) THEN 'Windows (CRLF)'
+    WHEN CHAR(10) THEN 'Unix (LF)'
+    WHEN CHAR(13) THEN 'Mac (CR)'
+END
+
+-- Skip header if needed
+IF @HasHeaderRow = 1
+    SET @LineStart = CHARINDEX(@LineBreak, @FileContent) + LEN(@LineBreak)
+
+-- Parse each line
+WHILE @LineStart <= LEN(@FileContent)
+BEGIN
+    SET @LineEnd = CHARINDEX(@LineBreak, @FileContent, @LineStart)
+    
+    IF @LineEnd = 0
+        SET @LineEnd = LEN(@FileContent) + 1
+    
+    SET @CurrentLine = LTRIM(RTRIM(SUBSTRING(@FileContent, @LineStart, @LineEnd - @LineStart)))
+    
+    IF @CurrentLine != '' AND @CurrentLine IS NOT NULL
+    BEGIN
+        -- Parse CSV columns (adjust for your table structure)
+        INSERT INTO dbo.YourTableName (Column1)
+        VALUES (@CurrentLine)
+        
+        SET @RowCount = @RowCount + 1
+    END
+    
+    SET @LineStart = @LineEnd + LEN(@LineBreak)
+END
+
+PRINT 'Manual parsing completed. Rows imported: ' + CAST(@RowCount AS VARCHAR(10))
+*/
+
+-- =============================================
+-- VERIFICATION QUERIES
+-- =============================================
+
+-- Check total rows imported
+DECLARE @VerifySQL NVARCHAR(MAX) = 'SELECT COUNT(*) AS TotalRows FROM ' + @TableName
+EXEC sp_executesql @VerifySQL
+
+-- Show first 10 rows
+SET @VerifySQL = 'SELECT TOP 10 * FROM ' + @TableName + ' ORDER BY 1 DESC'
+EXEC sp_executesql @VerifySQL
+
+-- Check for NULL values (adjust column names)
+-- SELECT COUNT(*) AS NullCount FROM YourTable WHERE YourColumn IS NULL
+
+-- =============================================
+-- EXAMPLE: CREATE TARGET TABLE (TEMPLATE)
+-- =============================================
+
+/*
+-- Uncomment and customize this to create your target table
+
+CREATE TABLE dbo.YourTableName (
+    ID INT IDENTITY(1,1) PRIMARY KEY,
+    Column1 VARCHAR(255),
+    Column2 VARCHAR(255),
+    Column3 VARCHAR(255),
+    Column4 VARCHAR(255),
+    ImportDate DATETIME DEFAULT GETDATE(),
+    CreatedBy VARCHAR(100) DEFAULT SYSTEM_USER
+)
+GO
+*/
+
+-- =============================================
+-- MULTI-COLUMN CSV IMPORT EXAMPLE
+-- =============================================
+
+/*
+-- For CSV with multiple columns like:
+-- Name,Email,Phone,Address
+-- John Doe,john@example.com,555-1234,123 Main St
+
+BULK INSERT dbo.YourMultiColumnTable
+FROM 'c:\user-data\ExcelUploads\YourFileName.csv'
+WITH (
+    FIELDTERMINATOR = ',',
+    ROWTERMINATOR = '\n',
+    FIRSTROW = 2,  -- Skip header
+    KEEPNULLS,
+    TABLOCK,
+    CODEPAGE = 'ACP',
+    ERRORFILE = 'c:\user-data\ExcelUploads\Errors.txt',  -- Log errors here
+    MAXERRORS = 10
+)
+*/
+
+-- =============================================
+-- TROUBLESHOOTING TIPS
+-- =============================================
+
+/*
+COMMON ISSUES AND SOLUTIONS:
+
+1. FILE NOT FOUND ERROR:
+   - Verify file path is correct
+   - Check SQL Server service account has read permissions on folder
+   - Use full path, not relative path
+
+2. PERMISSION DENIED:
+   - Grant SQL Server service account read access to c:\user-data\ExcelUploads
+   - Or move file to a location SQL Server can access (like C:\Temp)
+
+3. COLUMN MISMATCH:
+   - Ensure CSV columns match table columns (count and order)
+   - Or specify column mapping in INSERT statement
+
+4. ENCODING ISSUES:
+   - Try CODEPAGE = 'UTF8' instead of 'ACP'
+   - Save CSV as UTF-8 without BOM
+
+5. DELIMITER ISSUES:
+   - Check if CSV uses comma, semicolon, or tab
+   - Use FIELDTERMINATOR = '\t' for tab-delimited
+   - Use FIELDTERMINATOR = ';' for semicolon-delimited
+
+6. LINE ENDING ISSUES:
+   - Try ROWTERMINATOR = '\r\n' for Windows
+   - Try ROWTERMINATOR = '\n' for Unix/Mac
+
+7. QUOTE HANDLING:
+   - If fields contain commas, they should be in quotes
+   - Use FIELDQUOTE = '"' option (SQL Server 2017+)
+
+8. TO DEBUG FILE CONTENT:
+*/
+
+-- Debug: View raw file content
+SELECT TOP 500 BulkColumn AS FileContent
+FROM OPENROWSET(BULK 'c:\user-data\ExcelUploads\YourFileName.csv', SINGLE_CLOB) AS Contents
+
+-- Debug: Check line endings
+SELECT 
+    LEN(BulkColumn) AS FileLength,
+    LEN(BulkColumn) - LEN(REPLACE(BulkColumn, CHAR(13) + CHAR(10), '')) / 2 AS WindowsLineBreaks,
+    LEN(BulkColumn) - LEN(REPLACE(BulkColumn, CHAR(10), '')) AS TotalLF,
+    LEN(BulkColumn) - LEN(REPLACE(BulkColumn, CHAR(13), '')) AS TotalCR,
+    LEFT(BulkColumn, 500) AS First500Chars
+FROM OPENROWSET(BULK 'c:\user-data\ExcelUploads\YourFileName.csv', SINGLE_CLOB) AS Contents
+
+-- =============================================
+-- NOTES
+-- =============================================
+
+/*
+USAGE INSTRUCTIONS:
+
+1. UPDATE VARIABLES at top of script:
+   - @FilePath: Full path to your CSV file
+   - @TableName: Name of your target table (must exist)
+   - @HasHeaderRow: Set to 1 if CSV has headers, 0 if not
+   - @FieldDelimiter: Usually comma, adjust if needed
+
+2. ENSURE TABLE EXISTS:
+   - Create table first using CREATE TABLE statement
+   - Column count must match CSV column count
+   - Or use INSERT with column mapping
+
+3. GRANT PERMISSIONS:
+   - SQL Server service account needs read access to folder
+   - Or enable 'Ad Hoc Distributed Queries' for OPENROWSET
+
+4. RUN THE SCRIPT:
+   - Execute in SQL Server Management Studio
+   - Check output messages for success/errors
+   - Review verification queries at the end
+
+5. FOR PRODUCTION USE:
+   - Wrap in transaction for rollback capability
+   - Add comprehensive error logging
+   - Create stored procedure for repeated imports
+   - Consider truncating table first or handling duplicates
+*/
+
