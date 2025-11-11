@@ -1,4 +1,4 @@
-# Function overview:
+# List of Functions and what they actually do:
 # - Get-QCClaims: Pulls every claim marked to_process = 1 from bind_qc4520_processing.
 # - Start-QCMassClear: Sends ClearClaimFromAdjudication MSMQ messages for each claim ID.
 # - Start-QCMassAdjudicate: Sends AdjudicateClaim MSMQ messages (used when adjudication is enabled).
@@ -29,21 +29,21 @@ Function Get-QCClaims ($serverName, $databaseName)
         $sqlAdapter    = New-Object System.Data.SqlClient.SqlDataAdapter
         $return        = New-Object System.Data.DataTable
 
-        # Build an integrated-security connection string
+        # This builds the connection string
         $sqlConnection.ConnectionString = "Data Source=$serverName;Initial Catalog=$databaseName;Integrated Security=SSPI"
 
-        # Open the connection and run the SELECT pulling all claims queued for processing
+        # This opens the connection string just built and runs select statement pulling in claim Ids WHERE to_process = 1, for processing
         $sqlConnection.Open()
         $sqlCommand.Connection  = $sqlConnection
         $sqlCommand.CommandText = "SELECT claim_id FROM bind_qc4520_processing WHERE to_process = 1"
         $sqlAdapter.SelectCommand = $sqlCommand
 
-        # Fill the DataTable with the results and close the SQL connection
+        # Populates results in datatable with results form the query and closes the SQL Connection
         [void]$sqlAdapter.Fill($return)
         $sqlConnection.Close()
     }
     Catch {
-        # Bubble the error string back to the caller so the script can halt / alert
+        # Catch throws error and alert
         $ErrorMessage = $_.Exception.Message
         Return $ErrorMessage
     }
@@ -68,14 +68,14 @@ Function Start-QCMassClear($claims, $targetMachine, $user)
         Foreach ($i in $claims) {
             $claim_id = $i.claim_id
 
-            # Prepare a transactional MSMQ message for the ClearClaim queue
+            # builds MSMQ message for ClearClaim queue
             $msg        = New-Object System.Messaging.Message
             $msgStream  = New-Object System.IO.MemoryStream
             $queue      = New-Object System.Messaging.MessageQueue "FormatName:DIRECT=OS:$targetMachine\private$\qc.service.claimadjudication.clearclaimfromadjudication.input"
             $utf8       = New-Object System.Text.UTF8Encoding
             $tran       = New-Object System.Messaging.MessageQueueTransaction
 
-            # Build the XML payload understood by the Plexis command handler
+            # THis looks like it's building some sort of XML payload for plexis. Not really sure what this is all about
             [xml]$XML = "<?xml version=""1.0""?><ClearClaimFromAdjudication xmlns:xsi=""http://www.w3.org/2001/XMLSchema-instance"" xmlns:xsd=""http://www.w3.org/2001/XMLSchema"" xmlns:baseType=""Plexis.Messages.ICommand"" xmlns:baseType1=""Plexis.Messages.IMessage"" xmlns:baseType2=""Plexis.Messages.IReference"" xmlns:baseType3=""Plexis.Messages.IInternalId"" xmlns:baseType4=""Plexis.Messages.IIdentifier"" xmlns:baseType5=""Plexis.Messages.ISendResponse"" xmlns=""http://plexisweb.com/Plexis.Messages.ClaimAdjudication.Commands""><InternalId>$claim_id</InternalId><SecurityUserCredential>marcusb</SecurityUserCredential><Username>$user</Username><SendResponse>false</SendResponse></ClearClaimFromAdjudication>"
 
             # Push the XML into the queue transactionally so either all or none of the claims are enqueued
