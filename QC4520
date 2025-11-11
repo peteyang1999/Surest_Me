@@ -1,3 +1,9 @@
+# Function overview:
+# - Get-QCClaims: Pulls every claim marked to_process = 1 from bind_qc4520_processing.
+# - Start-QCMassClear: Sends ClearClaimFromAdjudication MSMQ messages for each claim ID.
+# - Start-QCMassAdjudicate: Sends AdjudicateClaim MSMQ messages (used when adjudication is enabled).
+# - Update-QCClaims: Resets to_process back to 0 once queuing completes.
+
 # Variables used to set connection targets
 $QCServerName    = 'plx-sqlprod\qcprod'
 $QCDatabaseName  = 'qc_core'
