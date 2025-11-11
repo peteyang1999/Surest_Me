@@ -1,219 +1,190 @@
-$QCServerName = 'plx-sqlprod\qcprod'
-$QCDatabaseName = 'qc_core'
+# Define connection targets and the service identity that will submit the queue work
+$QCServerName    = 'plx-sqlprod\qcprod'
+$QCDatabaseName  = 'qc_core'
 $QCWebServerName = 'plx-qcprod'
-$QCServiceUser = 'bind\qcprod'
- $adjudicateClaim = $false
+$QCServiceUser   = 'bind\qcprod'
+
+# Change this to $true (in the script or before execution) when you want the adjudication step to run
+$adjudicateClaim = $false
 
 Function Get-QCClaims ($serverName, $databaseName)
-    {
+{
     <#
         .SYNOPSIS
-          Will retrieve a list of claims in the Medcore database that have been loaded into a custom table.
-          The $adjType paramater is used to differentiate between Clear and Adjudication.
+          Retrieves all claims flagged for processing (to_process = 1) in the custom Medcore table.
         .EXAMPLE
           Get-QCCalims -claimType "Clear" -serverName "ServerName" -databaseName "DatabaseName"
-          Get-QCCalims -claimType "Adj" -serverName "ServerName" -databaseName "DatabaseName"
+          Get-QCCalims -claimType "Adj"   -serverName "ServerName" -databaseName "DatabaseName"
     #>
-    Try
-	{
-            $sqlConnection = New-Object System.Data.SqlClient.SqlConnection
-            $sqlCommand = New-Object System.Data.SqlClient.SqlCommand
-            $sqlAdapter = New-Object System.Data.SqlClient.SqlDataAdapter
-            $return = New-Object System.Data.Datatable
-            $sqlConnection.ConnectionString = "Data Source=$serverName;Initial Catalog=$databaseName;Integrated Security=SSPI"
+    Try {
+        # Create the ADO.NET plumbing used to execute the query
+        $sqlConnection = New-Object System.Data.SqlClient.SqlConnection
+        $sqlCommand    = New-Object System.Data.SqlClient.SqlCommand
+        $sqlAdapter    = New-Object System.Data.SqlClient.SqlDataAdapter
+        $return        = New-Object System.Data.DataTable
 
-            $sqlConnection.Open()
-            $sqlCommand.Connection = $sqlConnection
-            $sqlCommand.CommandText = "SELECT claim_id FROM bind_qc4520_processing WHERE to_process = 1" 
-            $sqlAdapter.SelectCommand = $sqlCommand
+        # Build an integrated-security connection string
+        $sqlConnection.ConnectionString = "Data Source=$serverName;Initial Catalog=$databaseName;Integrated Security=SSPI"
 
-            [void]$sqlAdapter.fill($return)
-            $sqlConnection.Close()
-           
-	}
-    Catch
-	    {
-	    $ErrorMessage = $_.Exception.Message
+        # Open the connection and run the SELECT pulling all claims queued for processing
+        $sqlConnection.Open()
+        $sqlCommand.Connection  = $sqlConnection
+        $sqlCommand.CommandText = "SELECT claim_id FROM bind_qc4520_processing WHERE to_process = 1"
+        $sqlAdapter.SelectCommand = $sqlCommand
+
+        # Fill the DataTable with the results and close the SQL connection
+        [void]$sqlAdapter.Fill($return)
+        $sqlConnection.Close()
+    }
+    Catch {
+        # Bubble the error string back to the caller so the script can halt / alert
+        $ErrorMessage = $_.Exception.Message
         Return $ErrorMessage
-	    }
+    }
 
     Return $return
-    }
+}
 
 Function Start-QCMassClear($claims, $targetMachine, $user)
-    {
+{
     <#
         .SYNOPSIS
-          Will clear adjudicate a list of claims supplied to the function in the $claims paramater.
-          $targetMachine will point to the desired QC application server, server running function must have MSMQ
-          $user will be user processing claims, should be service account
+          Sends a MSMQ command per claim telling the QC app to clear it from adjudication.
         .EXAMPLE
           Start-QCMassClear -claims $claimList -targetMachine "ServerName" -user "UserName"
     #>
 
-    #----------------------------------------------------------------------------
-    # Set variables
-    #----------------------------------------------------------------------------
+    # Load MSMQ assemblies and default to success = 1
     [Reflection.Assembly]::LoadWithPartialName("System.Messaging") | Out-Null
     $Success = 1
 
-    Try
-        {
-        Foreach($i in $claims)
-            {
+    Try {
+        Foreach ($i in $claims) {
             $claim_id = $i.claim_id
 
-            #----------------------------------------------------------------------------
-            # Loop thru each claim ID, build the MSMQ message, put it on the queue.
-            #----------------------------------------------------------------------------
-            $msg = new-object System.Messaging.Message
-            $msgStream = new-object System.IO.MemoryStream
-            $queue = New-Object System.Messaging.MessageQueue
-            $queue = New-Object System.Messaging.MessageQueue "FormatName:DIRECT=OS:$targetMachine\private$\qc.service.claimadjudication.clearclaimfromadjudication.input"
-            $utf8 = new-object System.Text.UTF8Encoding
-            $tran = new-object System.Messaging.MessageQueueTransaction
+            # Prepare a transactional MSMQ message for the ClearClaim queue
+            $msg        = New-Object System.Messaging.Message
+            $msgStream  = New-Object System.IO.MemoryStream
+            $queue      = New-Object System.Messaging.MessageQueue "FormatName:DIRECT=OS:$targetMachine\private$\qc.service.claimadjudication.clearclaimfromadjudication.input"
+            $utf8       = New-Object System.Text.UTF8Encoding
+            $tran       = New-Object System.Messaging.MessageQueueTransaction
 
-            #--------------------
-            # Clear Adjudication - Build msg.
-            #-------------------- 
+            # Build the XML payload understood by the Plexis command handler
             [xml]$XML = "<?xml version=""1.0""?><ClearClaimFromAdjudication xmlns:xsi=""http://www.w3.org/2001/XMLSchema-instance"" xmlns:xsd=""http://www.w3.org/2001/XMLSchema"" xmlns:baseType=""Plexis.Messages.ICommand"" xmlns:baseType1=""Plexis.Messages.IMessage"" xmlns:baseType2=""Plexis.Messages.IReference"" xmlns:baseType3=""Plexis.Messages.IInternalId"" xmlns:baseType4=""Plexis.Messages.IIdentifier"" xmlns:baseType5=""Plexis.Messages.ISendResponse"" xmlns=""http://plexisweb.com/Plexis.Messages.ClaimAdjudication.Commands""><InternalId>$claim_id</InternalId><SecurityUserCredential>marcusb</SecurityUserCredential><Username>$user</Username><SendResponse>false</SendResponse></ClearClaimFromAdjudication>"
 
-
-            #--------------------
-            # Put the message on the queue
-            #--------------------
+            # Push the XML into the queue transactionally so either all or none of the claims are enqueued
             $queueMessage = $XML.OuterXml
-            $tran.Begin()    
-            $msgBytes = $utf8.GetBytes($queueMessage)    
-            $msgStream.Write($msgBytes, 0, $msgBytes.Length)    
-            $msg.BodyStream = $msgStream
-            $msg.Label = ""
+            $tran.Begin()
+            $msgBytes = $utf8.GetBytes($queueMessage)
+            $msgStream.Write($msgBytes, 0, $msgBytes.Length)
+            $msg.BodyStream    = $msgStream
+            $msg.Label         = ""
             $msg.ResponseQueue = $queue
-            $queue.Send($msg, $tran)    
+            $queue.Send($msg, $tran)
             $tran.Commit()
-            }
         }
-     Catch
-        {
+    }
+    Catch {
+        # Return the failure message and flip the success flag
         $ErrorMessage = $_.Exception.Message
         Return $ErrorMessage
         $Success = 0
-        }
-    Return $Success
     }
+    Return $Success
+}
 
 Function Start-QCMassAdjudicate($claims, $targetMachine, $user)
-    {
+{
     <#
         .SYNOPSIS
-          Will clear adjudicate a list of claims supplied to the function in the $claims paramater.
-          $targetMachine will point to the desired QC application server, server running function must have MSMQ
-          $user will be user processing claims, should be service account
+          Sends a MSMQ command per claim telling the QC app to adjudicate it.
         .EXAMPLE
-          Start-QCMassClear -claims $claimList -targetMachine "ServerName" -user "UserName"
+          Start-QCMassAdjudicate -claims $claimList -targetMachine "ServerName" -user "UserName"
     #>
 
-    #----------------------------------------------------------------------------
-    # Set variables
-    #----------------------------------------------------------------------------
     [Reflection.Assembly]::LoadWithPartialName("System.Messaging") | Out-Null
     $Success = 1
 
-    Try
-        {
-        Foreach($i in $claims)
-            {
+    Try {
+        Foreach ($i in $claims) {
             $claim_id = $i.claim_id
 
-            #----------------------------------------------------------------------------
-            # Loop thru each claim ID, build the MSMQ message, put it on the queue.
-            #----------------------------------------------------------------------------
-            $msg = new-object System.Messaging.Message
-            $msgStream = new-object System.IO.MemoryStream
-            $queue = New-Object System.Messaging.MessageQueue
-            $queue = New-Object System.Messaging.MessageQueue "FormatName:DIRECT=OS:$targetMachine\private$\qc.service.claimadjudication.adjudicateclaim.input"
-            $utf8 = new-object System.Text.UTF8Encoding
-            $tran = new-object System.Messaging.MessageQueueTransaction
+            # Create a transactional MSMQ message targeting the adjudication queue
+            $msg        = New-Object System.Messaging.Message
+            $msgStream  = New-Object System.IO.MemoryStream
+            $queue      = New-Object System.Messaging.MessageQueue "FormatName:DIRECT=OS:$targetMachine\private$\qc.service.claimadjudication.adjudicateclaim.input"
+            $utf8       = New-Object System.Text.UTF8Encoding
+            $tran       = New-Object System.Messaging.MessageQueueTransaction
 
-            #--------------------
-            # Clear Adjudication - Build msg.
-            #-------------------- 
+            # Build the XML payload the adjudication service expects
             [xml]$XML = "<?xml version=""1.0""?><AdjudicateClaim xmlns:xsi=""http://www.w3.org/2001/XMLSchema-instance"" xmlns:xsd=""http://www.w3.org/2001/XMLSchema"" xmlns:baseType=""Plexis.Messages.ICommand"" xmlns:baseType1=""Plexis.Messages.IMessage"" xmlns:baseType2=""Plexis.Messages.IReference"" xmlns:baseTyp3=""Plexis.Messages.IInternalId"" xmlns:baseType4=""Plexis.Messages.IIdentifier"" xmlns:baseType5=""Plexis.Messages.ISendResponse"" xmlns=""http://plexisweb.com/Plexis.Messages.ClaimAdjudication.Commands""><InternalId>$claim_id</InternalId><SecurityUserCredential>$user</SecurityUserCredential><Username>$user</Username><SendResponse>false</SendResponse></AdjudicateClaim>"
 
-
-            #--------------------
-            # Put the message on the queue
-            #--------------------
+            # Enqueue the message within a transaction
             $queueMessage = $XML.OuterXml
-            $tran.Begin()    
-            $msgBytes = $utf8.GetBytes($queueMessage)    
-            $msgStream.Write($msgBytes, 0, $msgBytes.Length)    
-            $msg.BodyStream = $msgStream
-            $msg.Label = ""
+            $tran.Begin()
+            $msgBytes = $utf8.GetBytes($queueMessage)
+            $msgStream.Write($msgBytes, 0, $msgBytes.Length)
+            $msg.BodyStream    = $msgStream
+            $msg.Label         = ""
             $msg.ResponseQueue = $queue
-            $queue.Send($msg, $tran)    
+            $queue.Send($msg, $tran)
             $tran.Commit()
-            }
         }
-     Catch
-        {
+    }
+    Catch {
         $ErrorMessage = $_.Exception.Message
         Return $ErrorMessage
         $Success = 0
-        }
-    Return $Success
     }
+    Return $Success
+}
 
 Function Update-QCClaims ($serverName, $databaseName)
-    {
+{
     <#
         .SYNOPSIS
-          Will retrieve a list of claims in the Medcore database that have been loaded into a custom table.
-          The $adjType paramater is used to differentiate between Clear and Adjudication.
-        .EXAMPLE
-          Get-QCCalims -claimType "Clear" -serverName "ServerName" -databaseName "DatabaseName"
-          Get-QCCalims -claimType "Adj" -serverName "ServerName" -databaseName "DatabaseName"
+          Marks claims as processed once their MSMQ messages have been sent.
     #>
-    Try
-	{
-            $sqlConnection = New-Object System.Data.SqlClient.SqlConnection
-            $sqlCommand = New-Object System.Data.SqlClient.SqlCommand
-            $sqlAdapter = New-Object System.Data.SqlClient.SqlDataAdapter
-            $return = New-Object System.Data.Datatable
-            $sqlConnection.ConnectionString = "Data Source=$serverName;Initial Catalog=$databaseName;Integrated Security=SSPI"
+    Try {
+        # Reconnect to SQL Server to clear the to_process flag
+        $sqlConnection = New-Object System.Data.SqlClient.SqlConnection
+        $sqlCommand    = New-Object System.Data.SqlClient.SqlCommand
+        $sqlAdapter    = New-Object System.Data.SqlClient.SqlDataAdapter
+        $return        = New-Object System.Data.DataTable
 
-            $sqlConnection.Open()
-            $sqlCommand.Connection = $sqlConnection
-            $sqlCommand.CommandText = "UPDATE bind_qc4520_processing
+        $sqlConnection.ConnectionString = "Data Source=$serverName;Initial Catalog=$databaseName;Integrated Security=SSPI"
+
+        # Execute the UPDATE resetting all flagged rows to 0 (processed)
+        $sqlConnection.Open()
+        $sqlCommand.Connection  = $sqlConnection
+        $sqlCommand.CommandText = "UPDATE bind_qc4520_processing
 SET to_process = 0
-WHERE to_process = 1" 
-            $sqlAdapter.SelectCommand = $sqlCommand
+WHERE to_process = 1"
+        $sqlAdapter.SelectCommand = $sqlCommand
 
-            [void]$sqlAdapter.fill($return)
-            $sqlConnection.Close()
-           
-	}
-    Catch
-	    {
-	    $ErrorMessage = $_.Exception.Message
+        [void]$sqlAdapter.Fill($return)
+        $sqlConnection.Close()
+    }
+    Catch {
+        $ErrorMessage = $_.Exception.Message
         Return $ErrorMessage
-	    }
-
-    Return $return
     }
 
+    Return $return
+}
+
+# Pull the list of claims ready to process
 $claimsGet = Get-QCClaims -serverName $QCServerName -databaseName $QCDatabaseName
 
-$ClaimcheckStart = Start-QCMassClear  -claims $claimsGet -targetMachine $QCWebServerName -user $QCServiceUser
+# Send Clear-from-Adjudication MSMQ messages and capture the success flag
+$ClaimcheckStart = Start-QCMassClear -claims $claimsGet -targetMachine $QCWebServerName -user $QCServiceUser
 
-if ($ClaimcheckStar -eq 1 -and $adjudicateClaim)
-  {
-    $Checkstart = start-QCMassAdjudicate -claims $claimsGet -targetMachine $QCWebServerName -user $QCServiceUser
-  }
+# If clearing succeeded AND the caller opted into adjudication, enqueue those commands as well
+if ($ClaimcheckStart -eq 1 -and $adjudicateClaim) {
+    $Checkstart = Start-QCMassAdjudicate -claims $claimsGet -targetMachine $QCWebServerName -user $QCServiceUser
+}
 
-
-
-If ($checkStart -eq 1 -or $adjudicateClaim -eq $false)
-    {
+# Once clear/adjudicate steps complete (or adjudication was skipped), reset the to_process flag in SQL
+If ($checkStart -eq 1 -or $adjudicateClaim -eq $false) {
     Update-QCClaims -serverName $QCServerName -databaseName $QCDatabaseName
-    } 
+}
