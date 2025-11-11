@@ -1,10 +1,10 @@
-# Define connection targets and the service identity that will submit the queue work
+# Variables used to set connection targets
 $QCServerName    = 'plx-sqlprod\qcprod'
 $QCDatabaseName  = 'qc_core'
 $QCWebServerName = 'plx-qcprod'
 $QCServiceUser   = 'bind\qcprod'
 
-# Change this to $true (in the script or before execution) when you want the adjudication step to run
+# This needs to be set to $true if you want adjudication step to run
 $adjudicateClaim = $false
 
 Function Get-QCClaims ($serverName, $databaseName)
