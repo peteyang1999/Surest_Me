@@ -1,0 +1,66 @@
+
+param (
+    [Parameter(Mandatory = $true)]
+    [string]$ClaimUd,
+
+    [Parameter(Mandatory = $true)]
+    [string]$Server,
+
+    [Parameter(Mandatory = $true)]
+    [string]$Database,
+
+    [Parameter(Mandatory = $true)]
+    [string]$StoredProc,
+
+    [Parameter(Mandatory = $true)]
+    [string]$OutputCsv
+)
+
+# Append claim_ud to the output filename before the .csv extension
+$baseName = [System.IO.Path]::GetFileNameWithoutExtension($OutputCsv)
+$directory = [System.IO.Path]::GetDirectoryName($OutputCsv)
+$finalCsv = Join-Path $directory "$baseName`_$ClaimUd.csv"
+
+$sqlCommand = "EXEC $StoredProc @claim_ud = '$ClaimUd'"
+
+try {
+    $data = Invoke-Sqlcmd -ServerInstance $Server -Database $Database -Query $sqlCommand
+
+    if ($data -isnot [System.Collections.IEnumerable] -or $data -is [string]) {
+        $data = @($data)
+    }
+
+    if ($data.Count -gt 0 -and $data[0].PSObject.Properties.Count -gt 0) {
+        $csvContent = @()
+
+        # Exclude unwanted DataRow properties
+        $excludedProps = @("RowError", "RowState", "Table", "ItemArray", "HasErrors")
+        $includedProps = $data[0].PSObject.Properties.Name | Where-Object { $_ -notin $excludedProps }
+
+        # Add header
+        $header = ($includedProps | ForEach-Object { '"' + $_ + '"' }) -join ","
+        $csvContent += $header
+
+        # Add rows
+        foreach ($row in $data) {
+            $line = ($includedProps | ForEach-Object {
+                $value = $row.$_
+                if ($value -is [bool]) {
+                    $value = [int]$value
+                } elseif ($value -is [decimal] -or $value -is [double] -or $value -is [float]) {
+                    $value = "{0:N2}" -f $value
+                }
+                '"' + ($value -replace '"', '""') + '"'
+            }) -join ","
+            $csvContent += $line
+        }
+
+        $csvContent | Set-Content -Path $finalCsv -Encoding UTF8
+        Write-Host "✅ Exported to $finalCsv"
+    } else {
+        Write-Warning "⚠️ No data returned for claim_ud '$ClaimUd'."
+    }
+}
+catch {
+    Write-Error "❌ Error: $_"
+}
