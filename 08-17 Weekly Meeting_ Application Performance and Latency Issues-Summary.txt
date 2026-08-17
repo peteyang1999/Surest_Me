@@ -1,0 +1,48 @@
+08-17 Weekly Meeting: Application Performance and Latency Issues
+
+> Date: 2026-08-17 12:02:21
+> Location: [Insert Location]
+> Participants: [Grand Wizard Jenkins] [Speaker 2] [Speaker 3] [Speaker 4] [Speaker 5] [Speaker 6] [Speaker 7]
+## Meeting Notes
+### Application Performance and Latency Issues
+- **Problem Description**: Claims team end-users have experienced significant latency for about three months.
+- **Two Primary Issues**:
+  - Random VPN disconnections when connecting to QC core, suspected network-related; the network team is investigating.
+  - The application hangs or spins indefinitely during actions like adjudicating a claim or retrieving claim details, eventually throwing an error.
+- **Occurrence Patterns**:
+  - Most frequent in the morning (around 7–8 AM Central Time) and around noon (Central Time).
+  - Not limited to these windows; can occur at any time of day.
+  - Affects all teams, including users in the United States and India.
+- **Business Impact**:
+  - Performance issues are delaying claim turnaround times (TAT).
+  - Significant financial penalties to clients due to missed SLAs requiring 90% of adjudications within ten business days.
+  - Claims operations cite system instability as the reason for missing manual adjudication targets.
+### Initial Triage and Troubleshooting Efforts
+- **Temporary Mitigation**: Cody has been restarting services (e.g., RDS host, app server) to temporarily relieve issues; they recur.
+- **Resource Analysis**: Initial checks show server CPU and memory are not over-utilized; RDS host connections appear balanced.
+- **Database Observations**:
+  - Intermittent long-running and blocking queries observed, but they do not account for hour-long outages.
+  - Upgrade to version 25.1 coincided with issue onset; the read replica was decommissioned, and reporting redirected to the app server.
+  - Simple DELETE queries on certain tables are unusually slow (e.g., three minutes for a single row), suggesting potential database health issues such as outdated statistics.
+### Proposed Next Steps and Areas for Investigation
+- **Schedule Working Sessions**: One-hour deep-dive sessions to begin later this week (August 18 or 19, 2026).
+- **Key Investigation Areas**:
+  - **Database Maintenance**: Review and overhaul maintenance jobs; suspected that statistics are not being updated correctly across all tables.
+  - **Job Scheduling**: Compile a complete schedule of all processes to determine whether nightly jobs overlap with business hours and cause contention.
+  - **SQL Sizing**: Reassess SQL Server sizing for 200+ concurrent users; evaluate whether the database should be fully loaded into memory and verify current sizing.
+  - **Adjudication Distribution**: Explore scaling manual adjudication across multiple servers; batch adjudication runs on four servers, but manual adjudication may be constrained to a single server, creating a bottleneck.
+- **Upgrade to Version 25.2**:
+  - Proposed upgrade to 25.2 to leverage adjudication performance improvements.
+  - Concerns noted based on past post-upgrade issues; agreement to closely monitor performance before and after the patch if pursued.
+## Next Arrangements
+- [ ] [Speaker 3] to send calendar invitations for one-hour working sessions starting August 18 or 19, 2026.
+- [ ] [Grand Wizard Jenkins] to collect precise user-reported timestamps and contexts of performance issues to correlate with system activities.
+- [ ] [Grand Wizard Jenkins] to share a meeting recap with all participants and business partners.
+- [ ] Team to investigate database maintenance, job scheduling, SQL sizing, and adjudication distribution during the working sessions.
+## AI Suggestions
+> **AI Suggestions**
+> AI has identified the following issues that were not concluded in the meeting or lack clear action items; please pay attention:
+> 1. The root cause of the latency remains unknown and likely multifactorial (network, application, database). A structured diagnostic plan to isolate the primary contributor is needed.
+> 2. No decision was made on adopting an Application Performance Monitoring (APM) tool (e.g., Dynatrace). This could be critical for distinguishing front-end vs. back-end bottlenecks.
+> 3. The impact of decommissioning the read replica is correlated but unconfirmed. A plan to restore or replace this functionality was mentioned but not finalized.
+> 4. There is no systematic incident logging for user-reported issues, hindering quantification and root cause analysis. Establishing a standardized logging process is recommended.
